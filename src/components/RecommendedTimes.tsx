@@ -6,6 +6,7 @@ import { Participant } from './ParticipantsPopover'; // Assuming the type can be
 interface RecommendedTimesProps {
   eventId: string;
   participants: Participant[];
+  availabilityVersion: number;
 }
 
 type Availability = Database['public']['Tables']['availability']['Row'];
@@ -16,7 +17,7 @@ interface TimeSlot {
   endHour: number;
 }
 
-const RecommendedTimes: React.FC<RecommendedTimesProps> = ({ eventId, participants }) => {
+const RecommendedTimes: React.FC<RecommendedTimesProps> = ({ eventId, participants, availabilityVersion }) => {
   const [recommendedSlots, setRecommendedSlots] = useState<TimeSlot[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -94,7 +95,7 @@ const RecommendedTimes: React.FC<RecommendedTimesProps> = ({ eventId, participan
     };
 
     findRecommendedTimes();
-  }, [eventId, participants]);
+  }, [eventId, participants, availabilityVersion]);
 
   const formatTime = (hour: number) => {
     const ampm = hour >= 12 ? 'PM' : 'AM';

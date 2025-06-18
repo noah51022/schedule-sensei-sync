@@ -17,9 +17,10 @@ interface AvailabilityGridProps {
   selectedDate: Date;
   eventId: string;
   availabilityVersion: number;
+  onAvailabilityChange: () => void;
 }
 
-export const AvailabilityGrid = ({ selectedDate, eventId, availabilityVersion }: AvailabilityGridProps) => {
+export const AvailabilityGrid = ({ selectedDate, eventId, availabilityVersion, onAvailabilityChange }: AvailabilityGridProps) => {
   const [hoveredSlot, setHoveredSlot] = useState<number | null>(null);
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -120,7 +121,8 @@ export const AvailabilityGrid = ({ selectedDate, eventId, availabilityVersion }:
       }
 
       // Refresh availability data
-      await fetchAvailability();
+      // await fetchAvailability();
+      onAvailabilityChange();
 
       toast({
         title: "Success",

@@ -242,6 +242,7 @@ const Index = () => {
               selectedDate={selectedDate}
               eventId={eventId}
               availabilityVersion={availabilityVersion}
+              onAvailabilityChange={() => setAvailabilityVersion(v => v + 1)}
             />
           ) : (
             <div className="p-6 bg-card rounded-lg">
@@ -251,7 +252,11 @@ const Index = () => {
         </div>
         <div className="lg:col-span-1">
           {eventId && (
-            <RecommendedTimes eventId={eventId} participants={participants} />
+            <RecommendedTimes
+              eventId={eventId}
+              participants={participants}
+              availabilityVersion={availabilityVersion}
+            />
           )}
         </div>
       </div>
