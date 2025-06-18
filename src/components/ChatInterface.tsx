@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Send, Bot, User } from "lucide-react";
+import { Send, Bot, User, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -18,15 +18,7 @@ interface ChatInterfaceProps {
 }
 
 export const ChatInterface = ({ onAvailabilityUpdate }: ChatInterfaceProps) => {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      text: "Hi! I'm here to help coordinate schedules. Tell me your availability for the selected date range. For example: 'I'm free Saturday morning' or 'Busy Tuesday 2-4 PM'",
-      sender: 'bot',
-      timestamp: new Date(),
-      role: 'assistant'
-    }
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -49,13 +41,10 @@ export const ChatInterface = ({ onAvailabilityUpdate }: ChatInterfaceProps) => {
     setIsLoading(true);
 
     try {
-      // Convert messages to the format expected by Claude
-      const conversationHistory = messages
-        .filter(m => m.id !== '1') // Exclude the initial greeting
-        .map(m => ({
-          role: m.role,
-          content: m.text
-        }));
+      const conversationHistory = messages.map(m => ({
+        role: m.role,
+        content: m.text
+      }));
 
       const { data, error } = await supabase.functions.invoke('chat-with-claude', {
         body: {
@@ -108,6 +97,12 @@ export const ChatInterface = ({ onAvailabilityUpdate }: ChatInterfaceProps) => {
 
       <ScrollArea className="flex-1 p-4">
         <div className="space-y-4">
+          {messages.length === 0 && !isLoading && (
+            <div className="text-center text-muted-foreground py-8">
+              <p>Start a conversation by sharing your availability.</p>
+              <p className="text-sm mt-2">Example: "I'm free Monday 9 AM - 5 PM"</p>
+            </div>
+          )}
           {messages.map((message) => (
             <div
               key={message.id}
@@ -138,6 +133,11 @@ export const ChatInterface = ({ onAvailabilityUpdate }: ChatInterfaceProps) => {
               </div>
             </div>
           ))}
+          {isLoading && (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          )}
         </div>
       </ScrollArea>
 
