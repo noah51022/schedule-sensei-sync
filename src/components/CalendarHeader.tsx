@@ -1,19 +1,16 @@
-import { Calendar, LogOut } from "lucide-react";
+import { Calendar as CalendarIcon, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
+import { ParticipantsPopover, Participant } from './ParticipantsPopover';
 
 interface CalendarHeaderProps {
   selectedRange: string;
-  participantCount: number;
   onRangeClick: () => void;
+  participants: Participant[];
 }
 
-export const CalendarHeader = ({
-  selectedRange,
-  participantCount,
-  onRangeClick,
-}: CalendarHeaderProps) => {
+export function CalendarHeader({ selectedRange, onRangeClick, participants }: CalendarHeaderProps) {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
 
@@ -23,39 +20,34 @@ export const CalendarHeader = ({
   };
 
   return (
-    <div className="border-b">
-      <div className="flex h-16 items-center justify-between px-4 max-w-7xl mx-auto">
-        <div className="flex items-center gap-4">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 border-dashed"
-            onClick={onRangeClick}
-          >
-            <Calendar className="mr-2 h-4 w-4" />
-            {selectedRange}
+    <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6 py-4">
+      <div className="flex items-center gap-4">
+        <Button size="sm" variant="outline" className="h-8 gap-1" onClick={onRangeClick}>
+          <CalendarIcon className="h-4 w-4" />
+          <span className="text-sm font-medium">{selectedRange}</span>
+        </Button>
+        <ParticipantsPopover participants={participants}>
+          <Button size="sm" variant="ghost" className="h-8 gap-1">
+            <span className="text-sm font-medium">{participants.length} {participants.length === 1 ? 'participant' : 'participants'}</span>
           </Button>
-          <div className="text-sm text-muted-foreground">
-            {participantCount} participant{participantCount !== 1 ? "s" : ""}
-          </div>
-        </div>
-        <div>
-          {user ? (
-            <Button variant="ghost" size="sm" onClick={handleSignOut}>
-              Sign Out
-              <LogOut className="ml-2 h-4 w-4" />
-            </Button>
-          ) : (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate("/auth")}
-            >
-              Sign In
-            </Button>
-          )}
-        </div>
+        </ParticipantsPopover>
       </div>
-    </div>
+      <div>
+        {user ? (
+          <Button variant="ghost" size="sm" onClick={handleSignOut}>
+            Sign Out
+            <LogOut className="ml-2 h-4 w-4" />
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate("/auth")}
+          >
+            Sign In
+          </Button>
+        )}
+      </div>
+    </header>
   );
-};
+}

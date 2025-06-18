@@ -55,7 +55,7 @@ export const CalendarView = ({ selectedDate, onDateSelect, dateRange }: Calendar
           Range: {dateRange.start.toLocaleDateString()} - {dateRange.end.toLocaleDateString()}
         </p>
       </div>
-      
+
       <div className="p-4">
         <Calendar
           mode="single"
@@ -65,31 +65,25 @@ export const CalendarView = ({ selectedDate, onDateSelect, dateRange }: Calendar
           onMonthChange={setCurrentMonth}
           className="w-full"
           modifiers={{
-            inRange: isInRange,
             outside: (date) => !isInRange(date)
           }}
           modifiersStyles={{
-            inRange: { 
-              backgroundColor: 'hsl(var(--primary))',
-              color: 'hsl(var(--primary-foreground))',
-              borderRadius: '0.375rem'
-            },
-            outside: { 
+            outside: {
               opacity: 0.3,
               pointerEvents: 'none'
             }
           }}
         />
       </div>
-      
+
       <div className="p-4 border-t border-border bg-muted/50">
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">Selected:</span>
           <span className="font-medium text-foreground">
-            {selectedDate.toLocaleDateString('en-US', { 
+            {selectedDate.toLocaleDateString('en-US', {
               weekday: 'short',
-              month: 'short', 
-              day: 'numeric' 
+              month: 'short',
+              day: 'numeric'
             })}
           </span>
         </div>

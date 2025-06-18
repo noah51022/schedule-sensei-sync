@@ -6,9 +6,11 @@ import { CalendarView } from "@/components/CalendarView";
 import { AvailabilityGrid } from "@/components/AvailabilityGrid";
 import { ChatInterface } from "@/components/ChatInterface";
 import { DateRangeDialog } from "@/components/DateRangeDialog";
+import RecommendedTimes from "@/components/RecommendedTimes";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { toast } from "@/components/ui/use-toast";
+import { Participant } from "@/components/ParticipantsPopover";
 
 const Index = () => {
   const { user, loading } = useAuth();
@@ -33,7 +35,7 @@ const Index = () => {
     return { start, end };
   });
 
-  const [participantCount, setParticipantCount] = useState(0);
+  const [participants, setParticipants] = useState<Participant[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Create or fetch event when date range changes
@@ -81,21 +83,40 @@ const Index = () => {
 
         // Only fetch participant count if we have an event ID
         if (currentEventId) {
-          const { count, error: countError } = await supabase
+          const { data: availabilityData, error: availabilityError } = await supabase
             .from('availability')
-            .select('user_id', { count: 'exact', head: true })
-            .eq('event_id', currentEventId)
-            .eq('date', selectedDate.toISOString().split('T')[0]);
+            .select('user_id')
+            .eq('event_id', currentEventId);
 
-          // Don't throw error if count fails, just set to 0
-          if (!countError) {
-            setParticipantCount(count || 0);
-          } else {
-            console.warn('Error fetching participant count:', countError);
-            setParticipantCount(0);
+          if (availabilityError) {
+            console.warn('Error fetching availability for participant count:', availabilityError);
+            setParticipants([]);
+          } else if (availabilityData) {
+            const uniqueUserIds = [...new Set(availabilityData.map(a => a.user_id))];
+
+            if (uniqueUserIds.length > 0) {
+              const { data: profiles, error: profilesError } = await supabase
+                .from('profiles')
+                .select('user_id, display_name')
+                .in('user_id', uniqueUserIds);
+
+              if (profilesError) {
+                console.warn('Error fetching participant profiles:', profilesError);
+                // Fallback to showing user IDs or a generic name
+                setParticipants(uniqueUserIds.map(id => ({ id, display_name: 'Participant' })));
+              } else {
+                const participantMap = new Map(profiles.map(p => [p.user_id, p.display_name]));
+                setParticipants(uniqueUserIds.map(userId => ({
+                  id: userId,
+                  display_name: participantMap.get(userId) || 'Anonymous User'
+                })));
+              }
+            } else {
+              setParticipants([]);
+            }
           }
         } else {
-          setParticipantCount(0);
+          setParticipants([]);
         }
 
         setAvailabilityVersion(v => v + 1);
@@ -195,7 +216,7 @@ const Index = () => {
     <div className="min-h-screen bg-background">
       <CalendarHeader
         selectedRange={formatDateRange()}
-        participantCount={participantCount}
+        participants={participants}
         onRangeClick={() => setIsDateRangeDialogOpen(true)}
       />
 
@@ -228,13 +249,18 @@ const Index = () => {
             </div>
           )}
         </div>
-
-        <div className="lg:col-span-1 h-[600px]">
-          <ChatInterface
-            onAvailabilityUpdate={handleAvailabilityUpdate}
-            selectedDate={selectedDate}
-          />
+        <div className="lg:col-span-1">
+          {eventId && (
+            <RecommendedTimes eventId={eventId} participants={participants} />
+          )}
         </div>
+      </div>
+
+      <div className="p-6 max-w-7xl mx-auto">
+        <ChatInterface
+          onAvailabilityUpdate={handleAvailabilityUpdate}
+          selectedDate={selectedDate}
+        />
       </div>
     </div>
   );
