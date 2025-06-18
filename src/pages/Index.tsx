@@ -118,8 +118,10 @@ const Index = () => {
     setupEvent();
   }, [dateRange, user]);
 
-  const handleAvailabilityUpdate = async (message: string) => {
-    if (!user || !eventId) return;
+  const handleAvailabilityUpdate = async (message: string): Promise<{ success: boolean; slots?: any[]; error?: string }> => {
+    if (!user || !eventId) {
+      return { success: false, error: "User or event not found" };
+    }
 
     try {
       // The AI will process this input through the Edge Function
@@ -133,24 +135,36 @@ const Index = () => {
         }
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Edge function error:', error);
+        return { success: false, error: `AI processing failed: ${error.message}` };
+      }
 
       if (data && Array.isArray(data)) {
         // Update availability in the database
         for (const slot of data) {
-          await supabase.from('availability').insert({
+          const { error: insertError } = await supabase.from('availability').insert({
             event_id: eventId,
             user_id: user.id,
             date: selectedDate.toISOString().split('T')[0],
             start_hour: slot.start_hour,
             end_hour: slot.end_hour
           });
+
+          if (insertError) {
+            console.error('Database insert error:', insertError);
+            return { success: false, error: "Failed to save availability to database" };
+          }
         }
 
         toast({
           title: "Success",
           description: "Your availability has been updated",
         });
+
+        return { success: true, slots: data };
+      } else {
+        return { success: false, error: "No time slots were identified" };
       }
     } catch (error) {
       console.error('Error updating availability:', error);
@@ -159,6 +173,7 @@ const Index = () => {
         description: "Failed to update availability",
         variant: "destructive"
       });
+      return { success: false, error: error instanceof Error ? error.message : "Unknown error occurred" };
     }
   };
 
@@ -217,7 +232,10 @@ const Index = () => {
         </div>
 
         <div className="lg:col-span-1 h-[600px]">
-          <ChatInterface onAvailabilityUpdate={handleAvailabilityUpdate} />
+          <ChatInterface
+            onAvailabilityUpdate={handleAvailabilityUpdate}
+            selectedDate={selectedDate}
+          />
         </div>
       </div>
     </div>

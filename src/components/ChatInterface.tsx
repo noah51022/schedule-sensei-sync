@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Send, Bot, User, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,13 +14,43 @@ interface Message {
 }
 
 interface ChatInterfaceProps {
-  onAvailabilityUpdate: (availability: string) => void;
+  onAvailabilityUpdate: (availability: string) => Promise<{ success: boolean; slots?: any[]; error?: string }>;
+  selectedDate: Date;
 }
 
-export const ChatInterface = ({ onAvailabilityUpdate }: ChatInterfaceProps) => {
-  const [messages, setMessages] = useState<Message[]>([]);
+export const ChatInterface = ({ onAvailabilityUpdate, selectedDate }: ChatInterfaceProps) => {
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: "welcome",
+      text: `Hi! I'm your scheduling assistant. Tell me about your availability for ${selectedDate.toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'short',
+        day: 'numeric'
+      })} and I'll help you add it to your calendar. Try something like "I'm free from 9 AM to 5 PM" or "Available 2-4 PM and 6-8 PM".`,
+      sender: 'bot',
+      timestamp: new Date(),
+      role: 'assistant'
+    }
+  ]);
   const [inputText, setInputText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  // Update welcome message when selected date changes
+  useEffect(() => {
+    setMessages([
+      {
+        id: "welcome",
+        text: `Hi! I'm your scheduling assistant. Tell me about your availability for ${selectedDate.toLocaleDateString('en-US', {
+          weekday: 'long',
+          month: 'short',
+          day: 'numeric'
+        })} and I'll help you add it to your calendar. Try something like "I'm free from 9 AM to 5 PM" or "Available 2-4 PM and 6-8 PM".`,
+        sender: 'bot',
+        timestamp: new Date(),
+        role: 'assistant'
+      }
+    ]);
+  }, [selectedDate]);
 
   const handleSendMessage = async () => {
     if (!inputText.trim() || isLoading) return;
@@ -34,27 +64,62 @@ export const ChatInterface = ({ onAvailabilityUpdate }: ChatInterfaceProps) => {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    const currentInput = inputText;
     setInputText("");
     setIsLoading(true);
 
     try {
-      // First, try to update availability
-      await onAvailabilityUpdate(inputText);
+      // Call the availability update function which uses the edge function
+      const result = await onAvailabilityUpdate(currentInput);
 
-      // Add a success message
+      let botResponseText: string;
+
+      if (result.success && result.slots) {
+        if (result.slots.length === 0) {
+          botResponseText = "I couldn't identify any specific time slots in your message. Could you try being more specific? For example: 'I'm free from 9 AM to 5 PM' or 'Available Tuesday 2-4 PM'";
+        } else {
+          // Format the parsed time slots for user feedback
+          const formattedSlots = result.slots.map(slot => {
+            const startTime = new Date();
+            startTime.setHours(slot.start_hour, 0, 0, 0);
+            const endTime = new Date();
+            endTime.setHours(slot.end_hour, 0, 0, 0);
+
+            return `${startTime.toLocaleTimeString('en-US', {
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true
+            })} - ${endTime.toLocaleTimeString('en-US', {
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true
+            })}`;
+          }).join(', ');
+
+          botResponseText = `Perfect! I've added your availability for ${selectedDate.toLocaleDateString('en-US', {
+            weekday: 'long',
+            month: 'short',
+            day: 'numeric'
+          })}: ${formattedSlots}. Is there anything else you'd like to add?`;
+        }
+      } else {
+        botResponseText = result.error || "I had trouble understanding that time slot. Could you please try again with a specific time range? For example: 'I'm free from 9 AM to 5 PM' or '2-4 PM and 6-8 PM'";
+      }
+
       const botResponse: Message = {
         id: (Date.now() + 1).toString(),
-        text: "I've updated your availability. Is there anything else you'd like to share?",
+        text: botResponseText,
         sender: 'bot',
         timestamp: new Date(),
         role: 'assistant'
       };
+
       setMessages(prev => [...prev, botResponse]);
     } catch (error) {
-      console.error('Error updating availability:', error);
+      console.error('Error in chat:', error);
       const errorResponse: Message = {
         id: (Date.now() + 1).toString(),
-        text: "I had trouble understanding that time slot. Could you please try again with a specific time range? For example: 'I'm free from 9 AM to 5 PM' or '2-4 PM and 6-8 PM'",
+        text: "Sorry, I encountered an error while processing your request. Please try again.",
         sender: 'bot',
         timestamp: new Date(),
         role: 'assistant'
