@@ -1,196 +1,166 @@
-import { useState } from 'react';
-import { Navigate } from 'react-router-dom';
-import { Calendar, UserPlus, LogIn } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useAuth } from '@/hooks/useAuth';
-import { useToast } from '@/hooks/use-toast';
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Calendar, Users } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Auth() {
-  const { user, signIn, signUp, loading } = useAuth();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [loading, setLoading] = useState(false);
+  const { signIn, signUp } = useAuth();
   const { toast } = useToast();
-  const [isLoading, setIsLoading] = useState(false);
+  const navigate = useNavigate();
 
-  // Redirect if already authenticated
-  if (user && !loading) {
-    return <Navigate to="/" replace />;
-  }
-
-  const handleSignIn = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
-    
-    const formData = new FormData(e.currentTarget);
-    const email = formData.get('email') as string;
-    const password = formData.get('password') as string;
+    setLoading(true);
 
     const { error } = await signIn(email, password);
     
     if (error) {
       toast({
-        title: 'Sign in failed',
+        title: "Sign in failed",
         description: error.message,
-        variant: 'destructive',
+        variant: "destructive",
       });
+    } else {
+      navigate("/");
     }
-    
-    setIsLoading(false);
+    setLoading(false);
   };
 
-  const handleSignUp = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
-    
-    const formData = new FormData(e.currentTarget);
-    const email = formData.get('email') as string;
-    const password = formData.get('password') as string;
-    const displayName = formData.get('displayName') as string;
+    setLoading(true);
 
     const { error } = await signUp(email, password, displayName);
     
     if (error) {
       toast({
-        title: 'Sign up failed',
+        title: "Sign up failed",
         description: error.message,
-        variant: 'destructive',
+        variant: "destructive",
       });
     } else {
       toast({
-        title: 'Check your email',
-        description: 'We sent you a confirmation link to complete your registration.',
+        title: "Check your email",
+        description: "We've sent you a confirmation link to complete your registration.",
       });
     }
-    
-    setIsLoading(false);
+    setLoading(false);
   };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        <div className="flex items-center justify-center mb-8">
-          <Calendar className="h-8 w-8 text-primary mr-2" />
-          <h1 className="text-2xl font-bold text-foreground">Schedule Sync</h1>
+        <div className="text-center mb-8">
+          <div className="flex items-center justify-center space-x-2 mb-4">
+            <Calendar className="h-8 w-8 text-primary" />
+            <h1 className="text-3xl font-bold text-foreground">Schedule Sync</h1>
+          </div>
+          <p className="text-muted-foreground">Coordinate schedules with your friends using AI</p>
         </div>
 
-        <Tabs defaultValue="signin" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="signin">Sign In</TabsTrigger>
-            <TabsTrigger value="signup">Sign Up</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="signin">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <LogIn className="h-5 w-5 mr-2" />
-                  Welcome Back
-                </CardTitle>
-                <CardDescription>
-                  Sign in to coordinate schedules with your friends
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
+        <Card>
+          <CardHeader>
+            <CardTitle>Welcome</CardTitle>
+            <CardDescription>Sign in to your account or create a new one</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Tabs defaultValue="signin" className="w-full">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="signin">Sign In</TabsTrigger>
+                <TabsTrigger value="signup">Sign Up</TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="signin">
                 <form onSubmit={handleSignIn} className="space-y-4">
                   <div className="space-y-2">
-                    <label htmlFor="signin-email" className="text-sm font-medium">
-                      Email
-                    </label>
+                    <Label htmlFor="email">Email</Label>
                     <Input
-                      id="signin-email"
-                      name="email"
+                      id="email"
                       type="email"
-                      placeholder="you@example.com"
+                      placeholder="your@email.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
                       required
                     />
                   </div>
                   <div className="space-y-2">
-                    <label htmlFor="signin-password" className="text-sm font-medium">
-                      Password
-                    </label>
+                    <Label htmlFor="password">Password</Label>
                     <Input
-                      id="signin-password"
-                      name="password"
+                      id="password"
                       type="password"
-                      placeholder="Your password"
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
                       required
                     />
                   </div>
-                  <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? 'Signing in...' : 'Sign In'}
+                  <Button type="submit" className="w-full" disabled={loading}>
+                    {loading ? "Signing in..." : "Sign In"}
                   </Button>
                 </form>
-              </CardContent>
-            </Card>
-          </TabsContent>
+              </TabsContent>
 
-          <TabsContent value="signup">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <UserPlus className="h-5 w-5 mr-2" />
-                  Join Your Friends
-                </CardTitle>
-                <CardDescription>
-                  Create an account to start coordinating schedules
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
+              <TabsContent value="signup">
                 <form onSubmit={handleSignUp} className="space-y-4">
                   <div className="space-y-2">
-                    <label htmlFor="signup-name" className="text-sm font-medium">
-                      Display Name
-                    </label>
+                    <Label htmlFor="display-name">Display Name</Label>
                     <Input
-                      id="signup-name"
-                      name="displayName"
+                      id="display-name"
                       type="text"
                       placeholder="Your name"
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
                       required
                     />
                   </div>
                   <div className="space-y-2">
-                    <label htmlFor="signup-email" className="text-sm font-medium">
-                      Email
-                    </label>
+                    <Label htmlFor="signup-email">Email</Label>
                     <Input
                       id="signup-email"
-                      name="email"
                       type="email"
-                      placeholder="you@example.com"
+                      placeholder="your@email.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
                       required
                     />
                   </div>
                   <div className="space-y-2">
-                    <label htmlFor="signup-password" className="text-sm font-medium">
-                      Password
-                    </label>
+                    <Label htmlFor="signup-password">Password</Label>
                     <Input
                       id="signup-password"
-                      name="password"
                       type="password"
-                      placeholder="Choose a password"
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
                       required
                       minLength={6}
                     />
                   </div>
-                  <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? 'Creating account...' : 'Sign Up'}
+                  <Button type="submit" className="w-full" disabled={loading}>
+                    {loading ? "Creating account..." : "Sign Up"}
                   </Button>
                 </form>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+
+        <div className="mt-6 text-center">
+          <div className="flex items-center justify-center space-x-2 text-sm text-muted-foreground">
+            <Users className="h-4 w-4" />
+            <span>Join your friends in coordinating schedules</span>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -1,10 +1,12 @@
-import { useState } from "react";
-import { Navigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 import { CalendarHeader } from "@/components/CalendarHeader";
 import { CalendarView } from "@/components/CalendarView";
 import { AvailabilityGrid } from "@/components/AvailabilityGrid";
 import { ChatInterface } from "@/components/ChatInterface";
-import { useAuth } from "@/hooks/useAuth";
+import { Button } from "@/components/ui/button";
+import { LogOut } from "lucide-react";
 
 // Mock data for demonstration
 const mockTimeSlots = [
@@ -24,6 +26,7 @@ const mockTimeSlots = [
 
 const Index = () => {
   const { user, loading, signOut } = useAuth();
+  const navigate = useNavigate();
   const [selectedDate, setSelectedDate] = useState(new Date('2025-06-21'));
   const [dateRange] = useState({
     start: new Date('2025-06-20'),
@@ -31,18 +34,18 @@ const Index = () => {
   });
   const [participantCount] = useState(10);
 
-  // Redirect to auth if not logged in
-  if (!user && !loading) {
-    return <Navigate to="/auth" replace />;
+  useEffect(() => {
+    if (!loading && !user) {
+      navigate("/auth");
+    }
+  }, [user, loading, navigate]);
+
+  if (loading) {
+    return <div className="min-h-screen bg-background flex items-center justify-center">Loading...</div>;
   }
 
-  // Show loading spinner while checking auth
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
+  if (!user) {
+    return null;
   }
 
   const handleAvailabilityUpdate = (availability: string) => {
@@ -54,13 +57,32 @@ const Index = () => {
     return `${dateRange.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${dateRange.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
   };
 
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/auth");
+  };
+
+  if (loading) {
+    return <div className="min-h-screen bg-background flex items-center justify-center">Loading...</div>;
+  }
+
+  if (!user) {
+    return null;
+  }
+
   return (
     <div className="min-h-screen bg-background">
-      <CalendarHeader
-        selectedRange={formatDateRange()}
-        participantCount={participantCount}
-        onRangeClick={() => console.log('Range selection clicked')}
-      />
+      <div className="flex items-center justify-between p-6 border-b border-border bg-card">
+        <CalendarHeader
+          selectedRange={formatDateRange()}
+          participantCount={participantCount}
+          onRangeClick={() => console.log('Range selection clicked')}
+        />
+        <Button variant="outline" onClick={handleSignOut} className="flex items-center space-x-2">
+          <LogOut className="h-4 w-4" />
+          <span>Sign Out</span>
+        </Button>
+      </div>
       
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6 max-w-7xl mx-auto">
         {/* Calendar Section */}
