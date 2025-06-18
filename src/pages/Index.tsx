@@ -36,12 +36,6 @@ const Index = () => {
   const [participantCount, setParticipantCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    if (!loading && !user) {
-      navigate("/auth");
-    }
-  }, [user, loading, navigate]);
-
   // Create or fetch event when date range changes
   useEffect(() => {
     const setupEvent = async () => {
@@ -193,7 +187,7 @@ const Index = () => {
     }
   };
 
-  if (loading || !user) {
+  if (loading) {
     return <div className="min-h-screen bg-background flex items-center justify-center">Loading...</div>;
   }
 
