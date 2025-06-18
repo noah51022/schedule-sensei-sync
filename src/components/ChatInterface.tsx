@@ -34,40 +34,27 @@ export const ChatInterface = ({ onAvailabilityUpdate }: ChatInterfaceProps) => {
     };
 
     setMessages(prev => [...prev, userMessage]);
-    onAvailabilityUpdate(inputText);
-
-    const messageText = inputText;
     setInputText("");
     setIsLoading(true);
 
     try {
-      const conversationHistory = messages.map(m => ({
-        role: m.role,
-        content: m.text
-      }));
+      // First, try to update availability
+      await onAvailabilityUpdate(inputText);
 
-      const { data, error } = await supabase.functions.invoke('chat-with-claude', {
-        body: {
-          message: messageText,
-          conversationHistory
-        }
-      });
-
-      if (error) throw error;
-
+      // Add a success message
       const botResponse: Message = {
         id: (Date.now() + 1).toString(),
-        text: data.reply,
+        text: "I've updated your availability. Is there anything else you'd like to share?",
         sender: 'bot',
         timestamp: new Date(),
         role: 'assistant'
       };
       setMessages(prev => [...prev, botResponse]);
     } catch (error) {
-      console.error('Error calling Claude AI:', error);
+      console.error('Error updating availability:', error);
       const errorResponse: Message = {
         id: (Date.now() + 1).toString(),
-        text: "Sorry, I'm having trouble connecting to the AI service. Please try again in a moment.",
+        text: "I had trouble understanding that time slot. Could you please try again with a specific time range? For example: 'I'm free from 9 AM to 5 PM' or '2-4 PM and 6-8 PM'",
         sender: 'bot',
         timestamp: new Date(),
         role: 'assistant'

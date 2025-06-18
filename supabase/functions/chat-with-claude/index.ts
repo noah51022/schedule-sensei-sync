@@ -1,7 +1,10 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
-import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
+import { serve } from "std/http/server.ts";
 
 const anthropicApiKey = Deno.env.get('ANTHROPIC_API_KEY');
+if (!anthropicApiKey) {
+  throw new Error('ANTHROPIC_API_KEY environment variable is required');
+}
 
 interface TimeSlot {
   start_hour: number;
@@ -13,44 +16,75 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const SYSTEM_PROMPT = `You are a helpful scheduling assistant. Your task is to:
+1. Parse natural language descriptions of availability into specific time slots
+2. Return these as an array of time slots in 24-hour format
+3. Only include slots that are clearly specified in the message
+
+For example:
+"I'm free from 9 AM to 5 PM" → [{ start_hour: 9, end_hour: 17 }]
+"Available 2-4 PM and 6-8 PM" → [{ start_hour: 14, end_hour: 16 }, { start_hour: 18, end_hour: 20 }]
+
+If no specific time slots can be determined, return an empty array.
+If times are ambiguous or unclear, err on the side of not including them.
+
+Your response should be ONLY a JSON array of time slots, nothing else.`;
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    const { message, date } = await req.json();
+    const { message } = await req.json();
 
-    // Here you would integrate with Claude to parse the message
-    // For now, we'll use a simple parser that looks for numbers
-    const timeRegex = /(\d{1,2})(?::00)?\s*(am|pm)?/gi;
-    const matches = [...message.matchAll(timeRegex)];
+    // Call Claude API
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': anthropicApiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-3-sonnet-20240229',
+        max_tokens: 1000,
+        system: SYSTEM_PROMPT,
+        messages: [{
+          role: 'user',
+          content: message
+        }]
+      })
+    });
 
-    const slots: TimeSlot[] = [];
-
-    for (let i = 0; i < matches.length - 1; i += 2) {
-      const startMatch = matches[i];
-      const endMatch = matches[i + 1];
-
-      if (startMatch && endMatch) {
-        let startHour = parseInt(startMatch[1]);
-        let endHour = parseInt(endMatch[1]);
-
-        // Convert to 24-hour format
-        if (startMatch[2]?.toLowerCase() === 'pm' && startHour !== 12) startHour += 12;
-        if (startMatch[2]?.toLowerCase() === 'am' && startHour === 12) startHour = 0;
-        if (endMatch[2]?.toLowerCase() === 'pm' && endHour !== 12) endHour += 12;
-        if (endMatch[2]?.toLowerCase() === 'am' && endHour === 12) endHour = 0;
-
-        // Validate hours
-        if (startHour >= 0 && startHour < 24 && endHour > 0 && endHour <= 24 && startHour < endHour) {
-          slots.push({ start_hour: startHour, end_hour: endHour });
-        }
-      }
+    if (!response.ok) {
+      throw new Error(`Claude API error: ${response.statusText}`);
     }
 
+    const claudeResponse = await response.json();
+    const slots = JSON.parse(claudeResponse.content[0].text);
+
+    // Validate the response format
+    if (!Array.isArray(slots)) {
+      throw new Error('Invalid response format from Claude');
+    }
+
+    // Validate each slot
+    const validSlots = slots.filter(slot => {
+      return (
+        typeof slot === 'object' &&
+        typeof slot.start_hour === 'number' &&
+        typeof slot.end_hour === 'number' &&
+        slot.start_hour >= 0 &&
+        slot.start_hour < 24 &&
+        slot.end_hour > 0 &&
+        slot.end_hour <= 24 &&
+        slot.start_hour < slot.end_hour
+      );
+    });
+
     return new Response(
-      JSON.stringify(slots),
+      JSON.stringify(validSlots),
       {
         headers: {
           ...corsHeaders,
@@ -59,10 +93,11 @@ serve(async (req) => {
       },
     );
   } catch (error) {
+    console.error('Error:', error);
     return new Response(
       JSON.stringify({ error: error.message }),
       {
-        status: 400,
+        status: 500,
         headers: {
           ...corsHeaders,
           'Content-Type': 'application/json',
