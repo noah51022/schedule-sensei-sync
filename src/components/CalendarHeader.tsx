@@ -1,6 +1,6 @@
 import { Calendar, Users, MessageCircle, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface CalendarHeaderProps {
   selectedRange: string;
@@ -23,7 +23,7 @@ export const CalendarHeader = ({ selectedRange, participantCount, onRangeClick }
           <span className="text-sm">{participantCount} participants</span>
         </div>
       </div>
-      
+
       <div className="flex items-center space-x-4">
         <Button
           variant="outline"

@@ -3,12 +3,14 @@ import { Send, Bot, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { supabase } from "@/integrations/supabase/client";
 
 interface Message {
   id: string;
   text: string;
   sender: 'user' | 'bot';
   timestamp: Date;
+  role: 'user' | 'assistant';
 }
 
 interface ChatInterfaceProps {
@@ -21,19 +23,22 @@ export const ChatInterface = ({ onAvailabilityUpdate }: ChatInterfaceProps) => {
       id: '1',
       text: "Hi! I'm here to help coordinate schedules. Tell me your availability for the selected date range. For example: 'I'm free Saturday morning' or 'Busy Tuesday 2-4 PM'",
       sender: 'bot',
-      timestamp: new Date()
+      timestamp: new Date(),
+      role: 'assistant'
     }
   ]);
   const [inputText, setInputText] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleSendMessage = async () => {
-    if (!inputText.trim()) return;
+    if (!inputText.trim() || isLoading) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
       text: inputText,
       sender: 'user',
-      timestamp: new Date()
+      timestamp: new Date(),
+      role: 'user'
     };
 
     setMessages(prev => [...prev, userMessage]);
@@ -41,47 +46,52 @@ export const ChatInterface = ({ onAvailabilityUpdate }: ChatInterfaceProps) => {
 
     const messageText = inputText;
     setInputText("");
+    setIsLoading(true);
 
     try {
-      // Call Claude AI via edge function
-      const response = await fetch('/api/chat-with-claude', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      // Convert messages to the format expected by Claude
+      const conversationHistory = messages
+        .filter(m => m.id !== '1') // Exclude the initial greeting
+        .map(m => ({
+          role: m.role,
+          content: m.text
+        }));
+
+      const { data, error } = await supabase.functions.invoke('chat-with-claude', {
+        body: {
           message: messageText,
-          context: 'Users are coordinating schedules for a group event'
-        }),
+          conversationHistory
+        }
       });
 
-      const data = await response.json();
-      
-      if (data.error) {
-        throw new Error(data.error);
-      }
+      if (error) throw error;
 
       const botResponse: Message = {
         id: (Date.now() + 1).toString(),
-        text: data.response,
+        text: data.reply,
         sender: 'bot',
-        timestamp: new Date()
+        timestamp: new Date(),
+        role: 'assistant'
       };
       setMessages(prev => [...prev, botResponse]);
     } catch (error) {
       console.error('Error calling Claude AI:', error);
       const errorResponse: Message = {
         id: (Date.now() + 1).toString(),
-        text: "Sorry, I'm having trouble connecting to the AI service. Please make sure the Anthropic API key is configured.",
+        text: "Sorry, I'm having trouble connecting to the AI service. Please try again in a moment.",
         sender: 'bot',
-        timestamp: new Date()
+        timestamp: new Date(),
+        role: 'assistant'
       };
       setMessages(prev => [...prev, errorResponse]);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
       handleSendMessage();
     }
   };
@@ -101,29 +111,25 @@ export const ChatInterface = ({ onAvailabilityUpdate }: ChatInterfaceProps) => {
           {messages.map((message) => (
             <div
               key={message.id}
-              className={`flex items-start space-x-3 ${
-                message.sender === 'user' ? 'flex-row-reverse space-x-reverse' : ''
-              }`}
+              className={`flex items-start space-x-3 ${message.sender === 'user' ? 'flex-row-reverse space-x-reverse' : ''
+                }`}
             >
-              <div className={`p-2 rounded-full ${
-                message.sender === 'user' 
-                  ? 'bg-primary text-primary-foreground' 
-                  : 'bg-muted text-muted-foreground'
-              }`}>
+              <div className={`p-2 rounded-full ${message.sender === 'user'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-muted-foreground'
+                }`}>
                 {message.sender === 'user' ? (
                   <User className="h-4 w-4" />
                 ) : (
                   <Bot className="h-4 w-4" />
                 )}
               </div>
-              <div className={`max-w-[80%] ${
-                message.sender === 'user' ? 'text-right' : 'text-left'
-              }`}>
-                <div className={`p-3 rounded-lg ${
-                  message.sender === 'user'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted text-foreground'
+              <div className={`max-w-[80%] ${message.sender === 'user' ? 'text-right' : 'text-left'
                 }`}>
+                <div className={`p-3 rounded-lg ${message.sender === 'user'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-foreground'
+                  }`}>
                   <p className="text-sm">{message.text}</p>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
@@ -143,8 +149,13 @@ export const ChatInterface = ({ onAvailabilityUpdate }: ChatInterfaceProps) => {
             onChange={(e) => setInputText(e.target.value)}
             onKeyPress={handleKeyPress}
             className="flex-1"
+            disabled={isLoading}
           />
-          <Button onClick={handleSendMessage} size="icon">
+          <Button
+            onClick={handleSendMessage}
+            size="icon"
+            disabled={isLoading}
+          >
             <Send className="h-4 w-4" />
           </Button>
         </div>

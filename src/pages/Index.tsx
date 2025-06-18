@@ -62,14 +62,6 @@ const Index = () => {
     navigate("/auth");
   };
 
-  if (loading) {
-    return <div className="min-h-screen bg-background flex items-center justify-center">Loading...</div>;
-  }
-
-  if (!user) {
-    return null;
-  }
-
   return (
     <div className="min-h-screen bg-background">
       <div className="flex items-center justify-between p-6 border-b border-border bg-card">
@@ -83,7 +75,7 @@ const Index = () => {
           <span>Sign Out</span>
         </Button>
       </div>
-      
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6 max-w-7xl mx-auto">
         {/* Calendar Section */}
         <div className="lg:col-span-1">
