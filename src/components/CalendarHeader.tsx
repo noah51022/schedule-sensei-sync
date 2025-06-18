@@ -1,5 +1,6 @@
-import { Calendar, Users, MessageCircle } from "lucide-react";
+import { Calendar, Users, MessageCircle, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/useAuth";
 
 interface CalendarHeaderProps {
   selectedRange: string;
@@ -8,6 +9,8 @@ interface CalendarHeaderProps {
 }
 
 export const CalendarHeader = ({ selectedRange, participantCount, onRangeClick }: CalendarHeaderProps) => {
+  const { signOut, user } = useAuth();
+
   return (
     <div className="flex items-center justify-between p-6 border-b border-border bg-card">
       <div className="flex items-center space-x-4">
@@ -30,9 +33,13 @@ export const CalendarHeader = ({ selectedRange, participantCount, onRangeClick }
           <Calendar className="h-4 w-4" />
           <span className="hidden sm:inline">{selectedRange}</span>
         </Button>
-        <Button className="flex items-center space-x-2">
-          <MessageCircle className="h-4 w-4" />
-          <span className="hidden sm:inline">Start Chat</span>
+        <Button
+          variant="outline"
+          onClick={signOut}
+          className="flex items-center space-x-2"
+        >
+          <LogOut className="h-4 w-4" />
+          <span className="hidden sm:inline">Sign Out</span>
         </Button>
       </div>
     </div>

@@ -26,7 +26,7 @@ export const ChatInterface = ({ onAvailabilityUpdate }: ChatInterfaceProps) => {
   ]);
   const [inputText, setInputText] = useState("");
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!inputText.trim()) return;
 
     const userMessage: Message = {
@@ -39,18 +39,45 @@ export const ChatInterface = ({ onAvailabilityUpdate }: ChatInterfaceProps) => {
     setMessages(prev => [...prev, userMessage]);
     onAvailabilityUpdate(inputText);
 
-    // Simulate bot response (will be replaced with AI integration)
-    setTimeout(() => {
+    const messageText = inputText;
+    setInputText("");
+
+    try {
+      // Call Claude AI via edge function
+      const response = await fetch('/api/chat-with-claude', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: messageText,
+          context: 'Users are coordinating schedules for a group event'
+        }),
+      });
+
+      const data = await response.json();
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
       const botResponse: Message = {
         id: (Date.now() + 1).toString(),
-        text: "Thanks! I've noted your availability. Can you be more specific about the times? For example, what time on Saturday morning works for you?",
+        text: data.response,
         sender: 'bot',
         timestamp: new Date()
       };
       setMessages(prev => [...prev, botResponse]);
-    }, 1000);
-
-    setInputText("");
+    } catch (error) {
+      console.error('Error calling Claude AI:', error);
+      const errorResponse: Message = {
+        id: (Date.now() + 1).toString(),
+        text: "Sorry, I'm having trouble connecting to the AI service. Please make sure the Anthropic API key is configured.",
+        sender: 'bot',
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errorResponse]);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {

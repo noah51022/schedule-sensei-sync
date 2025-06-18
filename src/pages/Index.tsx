@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { Navigate } from "react-router-dom";
 import { CalendarHeader } from "@/components/CalendarHeader";
 import { CalendarView } from "@/components/CalendarView";
 import { AvailabilityGrid } from "@/components/AvailabilityGrid";
 import { ChatInterface } from "@/components/ChatInterface";
+import { useAuth } from "@/hooks/useAuth";
 
 // Mock data for demonstration
 const mockTimeSlots = [
@@ -21,12 +23,27 @@ const mockTimeSlots = [
 ];
 
 const Index = () => {
+  const { user, loading, signOut } = useAuth();
   const [selectedDate, setSelectedDate] = useState(new Date('2025-06-21'));
   const [dateRange] = useState({
     start: new Date('2025-06-20'),
     end: new Date('2025-06-25')
   });
   const [participantCount] = useState(10);
+
+  // Redirect to auth if not logged in
+  if (!user && !loading) {
+    return <Navigate to="/auth" replace />;
+  }
+
+  // Show loading spinner while checking auth
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
 
   const handleAvailabilityUpdate = (availability: string) => {
     console.log('New availability input:', availability);
