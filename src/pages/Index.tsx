@@ -15,6 +15,7 @@ const Index = () => {
   const navigate = useNavigate();
   const [isDateRangeDialogOpen, setIsDateRangeDialogOpen] = useState(false);
   const [eventId, setEventId] = useState<string | null>(null);
+  const [availabilityVersion, setAvailabilityVersion] = useState(0);
 
   // Initialize with current date and a week range
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -103,6 +104,7 @@ const Index = () => {
           setParticipantCount(0);
         }
 
+        setAvailabilityVersion(v => v + 1);
       } catch (error) {
         console.error('Error setting up event:', error);
         toast({
@@ -162,6 +164,7 @@ const Index = () => {
           description: "Your availability has been updated",
         });
 
+        setAvailabilityVersion(v => v + 1);
         return { success: true, slots: data };
       } else {
         return { success: false, error: "No time slots were identified" };
@@ -223,6 +226,7 @@ const Index = () => {
             <AvailabilityGrid
               selectedDate={selectedDate}
               eventId={eventId}
+              availabilityVersion={availabilityVersion}
             />
           ) : (
             <div className="p-6 bg-card rounded-lg">

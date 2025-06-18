@@ -16,9 +16,10 @@ interface TimeSlot {
 interface AvailabilityGridProps {
   selectedDate: Date;
   eventId: string;
+  availabilityVersion: number;
 }
 
-export const AvailabilityGrid = ({ selectedDate, eventId }: AvailabilityGridProps) => {
+export const AvailabilityGrid = ({ selectedDate, eventId, availabilityVersion }: AvailabilityGridProps) => {
   const [hoveredSlot, setHoveredSlot] = useState<number | null>(null);
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -141,7 +142,7 @@ export const AvailabilityGrid = ({ selectedDate, eventId }: AvailabilityGridProp
 
   useEffect(() => {
     fetchAvailability();
-  }, [selectedDate, eventId, user?.id]);
+  }, [selectedDate, eventId, user?.id, availabilityVersion]);
 
   return (
     <div className="p-6 bg-card">
