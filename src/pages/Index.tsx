@@ -8,22 +8,13 @@ import { ChatInterface } from "@/components/ChatInterface";
 import { DateRangeDialog } from "@/components/DateRangeDialog";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
-
-interface TimeSlot {
-  hour: number;
-  available: number;
-  total: number;
-}
-
-interface ParsedSlots {
-  start_time: string;
-  end_time: string;
-}
+import { toast } from "@/components/ui/use-toast";
 
 const Index = () => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   const [isDateRangeDialogOpen, setIsDateRangeDialogOpen] = useState(false);
+  const [eventId, setEventId] = useState<string | null>(null);
 
   // Initialize with current date and a week range
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -41,7 +32,6 @@ const Index = () => {
     return { start, end };
   });
 
-  const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
   const [participantCount, setParticipantCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -51,88 +41,124 @@ const Index = () => {
     }
   }, [user, loading, navigate]);
 
-  // Fetch availability data when selected date changes
+  // Create or fetch event when date range changes
   useEffect(() => {
-    const fetchAvailability = async () => {
+    const setupEvent = async () => {
       if (!user) return;
 
       try {
         setIsLoading(true);
 
-        // Fetch participants count
-        const { data: participants, error: participantsError } = await supabase
-          .from('participants')
+        // Try to find an existing event for this date range
+        const { data: existingEvents, error: fetchError } = await supabase
+          .from('events')
           .select('id')
-          .eq('event_id', dateRange.start.toISOString());
+          .eq('creator_id', user.id)
+          .gte('start_date', dateRange.start.toISOString().split('T')[0])
+          .lte('end_date', dateRange.end.toISOString().split('T')[0])
+          .limit(1);
 
-        if (participantsError) throw participantsError;
-        setParticipantCount(participants?.length || 0);
+        if (fetchError) throw fetchError;
 
-        // Fetch availability for the selected date
-        const { data: availability, error: availabilityError } = await supabase
-          .from('availability')
-          .select('*')
-          .eq('date', selectedDate.toISOString().split('T')[0]);
+        let currentEventId: string | null = null;
 
-        if (availabilityError) throw availabilityError;
+        if (existingEvents && existingEvents.length > 0) {
+          currentEventId = existingEvents[0].id;
+        } else {
+          // Create a new event
+          const { data: newEvent, error: createError } = await supabase
+            .from('events')
+            .insert({
+              creator_id: user.id,
+              title: `Availability for ${dateRange.start.toLocaleDateString()} - ${dateRange.end.toLocaleDateString()}`,
+              start_date: dateRange.start.toISOString().split('T')[0],
+              end_date: dateRange.end.toISOString().split('T')[0]
+            })
+            .select('id')
+            .single();
 
-        // Process availability data into time slots
-        const slots: TimeSlot[] = [];
-        for (let hour = 9; hour <= 20; hour++) {
-          const availableCount = availability?.filter(a => {
-            const startHour = new Date(a.start_time).getHours();
-            const endHour = new Date(a.end_time).getHours();
-            return startHour <= hour && endHour > hour;
-          }).length || 0;
-
-          slots.push({
-            hour,
-            available: availableCount,
-            total: participants?.length || 0
-          });
+          if (createError) throw createError;
+          if (newEvent) currentEventId = newEvent.id;
         }
 
-        setTimeSlots(slots);
+        // Set the event ID first
+        setEventId(currentEventId);
+
+        // Only fetch participant count if we have an event ID
+        if (currentEventId) {
+          const { count, error: countError } = await supabase
+            .from('availability')
+            .select('user_id', { count: 'exact', head: true })
+            .eq('event_id', currentEventId)
+            .eq('date', selectedDate.toISOString().split('T')[0]);
+
+          // Don't throw error if count fails, just set to 0
+          if (!countError) {
+            setParticipantCount(count || 0);
+          } else {
+            console.warn('Error fetching participant count:', countError);
+            setParticipantCount(0);
+          }
+        } else {
+          setParticipantCount(0);
+        }
+
       } catch (error) {
-        console.error('Error fetching availability:', error);
+        console.error('Error setting up event:', error);
+        toast({
+          title: "Error",
+          description: "Failed to set up the event",
+          variant: "destructive"
+        });
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchAvailability();
-  }, [selectedDate, user, dateRange.start]);
+    setupEvent();
+  }, [dateRange, user]);
 
-  const handleAvailabilityUpdate = async (availability: string) => {
-    if (!user) return;
+  const handleAvailabilityUpdate = async (message: string) => {
+    if (!user || !eventId) return;
 
     try {
       // The AI will process this input through the Edge Function
-      // The response will be used to update the availability in the database
-      const { data: { parsed_slots }, error } = await supabase.functions.invoke<{
-        parsed_slots: ParsedSlots[]
-      }>('parse-availability', {
+      const { data, error } = await supabase.functions.invoke<{
+        start_hour: number;
+        end_hour: number;
+      }[]>('chat-with-claude', {
         body: {
-          message: availability,
+          message,
           date: selectedDate.toISOString()
         }
       });
 
       if (error) throw error;
 
-      // Update availability in the database
-      if (parsed_slots) {
-        for (const slot of parsed_slots) {
+      if (data && Array.isArray(data)) {
+        // Update availability in the database
+        for (const slot of data) {
           await supabase.from('availability').insert({
+            event_id: eventId,
             user_id: user.id,
             date: selectedDate.toISOString().split('T')[0],
-            start_time: slot.start_time,
-            end_time: slot.end_time
+            start_hour: slot.start_hour,
+            end_hour: slot.end_hour
           });
         }
+
+        toast({
+          title: "Success",
+          description: "Your availability has been updated",
+        });
       }
     } catch (error) {
       console.error('Error updating availability:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update availability",
+        variant: "destructive"
+      });
     }
   };
 
@@ -178,10 +204,16 @@ const Index = () => {
         </div>
 
         <div className="lg:col-span-1">
-          <AvailabilityGrid
-            selectedDate={selectedDate}
-            timeSlots={timeSlots}
-          />
+          {eventId ? (
+            <AvailabilityGrid
+              selectedDate={selectedDate}
+              eventId={eventId}
+            />
+          ) : (
+            <div className="p-6 bg-card rounded-lg">
+              <p className="text-muted-foreground">Loading availability...</p>
+            </div>
+          )}
         </div>
 
         <div className="lg:col-span-1 h-[600px]">

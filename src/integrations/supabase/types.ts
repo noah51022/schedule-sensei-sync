@@ -9,50 +9,94 @@ export type Json =
 export interface Database {
   public: {
     Tables: {
-      participants: {
+      profiles: {
         Row: {
           id: string
           user_id: string
-          event_id: string
+          email: string
+          display_name: string | null
           created_at: string
+          updated_at: string
         }
         Insert: {
           id?: string
           user_id: string
-          event_id: string
+          email: string
+          display_name?: string | null
           created_at?: string
+          updated_at?: string
         }
         Update: {
           id?: string
           user_id?: string
-          event_id?: string
+          email?: string
+          display_name?: string | null
           created_at?: string
+          updated_at?: string
+        }
+      }
+      events: {
+        Row: {
+          id: string
+          creator_id: string
+          title: string
+          description: string | null
+          start_date: string
+          end_date: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          creator_id: string
+          title: string
+          description?: string | null
+          start_date: string
+          end_date: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          creator_id?: string
+          title?: string
+          description?: string | null
+          start_date?: string
+          end_date?: string
+          created_at?: string
+          updated_at?: string
         }
       }
       availability: {
         Row: {
           id: string
+          event_id: string
           user_id: string
           date: string
-          start_time: string
-          end_time: string
+          start_hour: number
+          end_hour: number
           created_at: string
+          updated_at: string
         }
         Insert: {
           id?: string
+          event_id: string
           user_id: string
           date: string
-          start_time: string
-          end_time: string
+          start_hour: number
+          end_hour: number
           created_at?: string
+          updated_at?: string
         }
         Update: {
           id?: string
+          event_id?: string
           user_id?: string
           date?: string
-          start_time?: string
-          end_time?: string
+          start_hour?: number
+          end_hour?: number
           created_at?: string
+          updated_at?: string
         }
       }
     }

@@ -1,7 +1,12 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 
 const anthropicApiKey = Deno.env.get('ANTHROPIC_API_KEY');
+
+interface TimeSlot {
+  start_hour: number;
+  end_hour: number;
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -10,69 +15,59 @@ const corsHeaders = {
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    const { message, conversationHistory = [] } = await req.json();
+    const { message, date } = await req.json();
 
-    if (!anthropicApiKey) {
-      throw new Error('ANTHROPIC_API_KEY not configured');
+    // Here you would integrate with Claude to parse the message
+    // For now, we'll use a simple parser that looks for numbers
+    const timeRegex = /(\d{1,2})(?::00)?\s*(am|pm)?/gi;
+    const matches = [...message.matchAll(timeRegex)];
+
+    const slots: TimeSlot[] = [];
+
+    for (let i = 0; i < matches.length - 1; i += 2) {
+      const startMatch = matches[i];
+      const endMatch = matches[i + 1];
+
+      if (startMatch && endMatch) {
+        let startHour = parseInt(startMatch[1]);
+        let endHour = parseInt(endMatch[1]);
+
+        // Convert to 24-hour format
+        if (startMatch[2]?.toLowerCase() === 'pm' && startHour !== 12) startHour += 12;
+        if (startMatch[2]?.toLowerCase() === 'am' && startHour === 12) startHour = 0;
+        if (endMatch[2]?.toLowerCase() === 'pm' && endHour !== 12) endHour += 12;
+        if (endMatch[2]?.toLowerCase() === 'am' && endHour === 12) endHour = 0;
+
+        // Validate hours
+        if (startHour >= 0 && startHour < 24 && endHour > 0 && endHour <= 24 && startHour < endHour) {
+          slots.push({ start_hour: startHour, end_hour: endHour });
+        }
+      }
     }
 
-    const systemPrompt = `You are a helpful AI assistant for a scheduling app called "Schedule Sync". Your job is to help friends coordinate their schedules by parsing natural language availability inputs.
-
-When users share their availability (like "I'm free Saturday morning" or "Busy Tuesday 2-4 PM"), you should:
-1. Parse and understand their availability 
-2. Ask clarifying questions if needed (specific times, time zones, etc.)
-3. Acknowledge their input and ask for more details when helpful
-4. Be friendly and conversational
-5. Focus on scheduling and availability coordination
-
-Keep responses concise and helpful. Always try to get specific times when possible.`;
-
-    const messages = [
-      { role: "system", content: systemPrompt },
-      ...conversationHistory,
-      { role: "user", content: message }
-    ];
-
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${anthropicApiKey}`,
-        'Content-Type': 'application/json',
-        'x-api-key': anthropicApiKey,
-        'anthropic-version': '2023-06-01'
+    return new Response(
+      JSON.stringify(slots),
+      {
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+        },
       },
-      body: JSON.stringify({
-        model: 'claude-3-haiku-20240307',
-        max_tokens: 1000,
-        messages: messages.filter(m => m.role !== 'system'),
-        system: systemPrompt
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Anthropic API error: ${response.status} - ${errorText}`);
-    }
-
-    const data = await response.json();
-    const reply = data.content[0].text;
-
-    return new Response(JSON.stringify({ reply }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-
+    );
   } catch (error) {
-    console.error('Error in chat-with-claude function:', error);
-    return new Response(JSON.stringify({ 
-      error: error.message,
-      reply: "Sorry, I'm having trouble connecting right now. Please try again in a moment."
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return new Response(
+      JSON.stringify({ error: error.message }),
+      {
+        status: 400,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
   }
 });
