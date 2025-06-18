@@ -5,6 +5,7 @@ import { CalendarHeader } from "@/components/CalendarHeader";
 import { CalendarView } from "@/components/CalendarView";
 import { AvailabilityGrid } from "@/components/AvailabilityGrid";
 import { ChatInterface } from "@/components/ChatInterface";
+import { DateRangeDialog } from "@/components/DateRangeDialog";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 
@@ -22,6 +23,7 @@ interface ParsedSlots {
 const Index = () => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
+  const [isDateRangeDialogOpen, setIsDateRangeDialogOpen] = useState(false);
 
   // Initialize with current date and a week range
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -138,6 +140,15 @@ const Index = () => {
     return `${dateRange.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${dateRange.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
   };
 
+  const handleDateRangeChange = (newRange: { start: Date; end: Date }) => {
+    setDateRange(newRange);
+    // If the currently selected date is outside the new range,
+    // update it to the start of the new range
+    if (selectedDate < newRange.start || selectedDate > newRange.end) {
+      setSelectedDate(newRange.start);
+    }
+  };
+
   if (loading || !user) {
     return <div className="min-h-screen bg-background flex items-center justify-center">Loading...</div>;
   }
@@ -147,10 +158,14 @@ const Index = () => {
       <CalendarHeader
         selectedRange={formatDateRange()}
         participantCount={participantCount}
-        onRangeClick={() => {
-          // TODO: Implement date range selection dialog
-          console.log('Range selection clicked');
-        }}
+        onRangeClick={() => setIsDateRangeDialogOpen(true)}
+      />
+
+      <DateRangeDialog
+        open={isDateRangeDialogOpen}
+        onOpenChange={setIsDateRangeDialogOpen}
+        onRangeSelect={handleDateRangeChange}
+        currentRange={dateRange}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6 max-w-7xl mx-auto">

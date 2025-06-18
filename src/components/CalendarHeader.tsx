@@ -8,39 +8,30 @@ interface CalendarHeaderProps {
   onRangeClick: () => void;
 }
 
-export const CalendarHeader = ({ selectedRange, participantCount, onRangeClick }: CalendarHeaderProps) => {
+export const CalendarHeader = ({
+  selectedRange,
+  participantCount,
+  onRangeClick
+}: CalendarHeaderProps) => {
   const { signOut, user } = useAuth();
 
   return (
-    <div className="flex items-center justify-between p-6 border-b border-border bg-card">
-      <div className="flex items-center space-x-4">
-        <div className="flex items-center space-x-2">
-          <Calendar className="h-6 w-6 text-primary" />
-          <h1 className="text-2xl font-bold text-foreground">Schedule Sync</h1>
+    <div className="border-b">
+      <div className="flex h-16 items-center px-4 max-w-7xl mx-auto">
+        <div className="flex items-center gap-4">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 border-dashed"
+            onClick={onRangeClick}
+          >
+            <Calendar className="mr-2 h-4 w-4" />
+            {selectedRange}
+          </Button>
+          <div className="text-sm text-muted-foreground">
+            {participantCount} participant{participantCount !== 1 ? 's' : ''}
+          </div>
         </div>
-        <div className="hidden md:flex items-center space-x-2 text-muted-foreground">
-          <Users className="h-4 w-4" />
-          <span className="text-sm">{participantCount} participants</span>
-        </div>
-      </div>
-
-      <div className="flex items-center space-x-4">
-        <Button
-          variant="outline"
-          onClick={onRangeClick}
-          className="flex items-center space-x-2"
-        >
-          <Calendar className="h-4 w-4" />
-          <span className="hidden sm:inline">{selectedRange}</span>
-        </Button>
-        <Button
-          variant="outline"
-          onClick={signOut}
-          className="flex items-center space-x-2"
-        >
-          <LogOut className="h-4 w-4" />
-          <span className="hidden sm:inline">Sign Out</span>
-        </Button>
       </div>
     </div>
   );
