@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/components/ui/use-toast";
 
 interface Message {
   id: string;
@@ -24,6 +26,8 @@ interface ChatInterfaceProps {
 }
 
 export const ChatInterface = ({ onAvailabilityUpdate, selectedDate }: ChatInterfaceProps) => {
+  const { user } = useAuth();
+  const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome",
@@ -58,6 +62,15 @@ export const ChatInterface = ({ onAvailabilityUpdate, selectedDate }: ChatInterf
   }, [selectedDate]);
 
   const handleSendMessage = async () => {
+    if (!user) {
+      toast({
+        title: "Authentication Required",
+        description: "Please sign in to chat with the assistant.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!inputText.trim() || isLoading) return;
 
     const userMessage: Message = {
@@ -149,6 +162,8 @@ export const ChatInterface = ({ onAvailabilityUpdate, selectedDate }: ChatInterf
     }
   };
 
+  const isChatDisabled = isLoading || !user;
+
   return (
     <div className="flex flex-col h-full bg-card border-l border-border">
       <div className="p-4 border-b border-border">
@@ -208,17 +223,17 @@ export const ChatInterface = ({ onAvailabilityUpdate, selectedDate }: ChatInterf
       <div className="p-4 border-t border-border">
         <div className="flex space-x-2">
           <Input
-            placeholder="e.g., I'm free Saturday 2-5 PM..."
+            placeholder={user ? "e.g., I'm free Saturday 2-5 PM..." : "Please sign in to use the chat"}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyPress={handleKeyPress}
             className="flex-1"
-            disabled={isLoading}
+            disabled={isChatDisabled}
           />
           <Button
             onClick={handleSendMessage}
             size="icon"
-            disabled={isLoading}
+            disabled={isChatDisabled}
           >
             <Send className="h-4 w-4" />
           </Button>
