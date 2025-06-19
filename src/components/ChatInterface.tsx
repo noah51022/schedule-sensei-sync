@@ -21,7 +21,7 @@ interface DailyAvailability {
 }
 
 interface ChatInterfaceProps {
-  onAvailabilityUpdate: (availability: string) => Promise<{ success: boolean; slots?: DailyAvailability[]; error?: string }>;
+  onAvailabilityUpdate: (availability: string) => Promise<{ success: boolean; dates?: DailyAvailability[]; action?: 'add' | 'remove'; error?: string }>;
   selectedDate: Date;
 }
 
@@ -92,39 +92,39 @@ export const ChatInterface = ({ onAvailabilityUpdate, selectedDate }: ChatInterf
 
       let botResponseText: string;
 
-      if (result.success && result.slots) {
-        if (result.slots.length === 0) {
-          botResponseText = "I couldn't identify any specific time slots in your message. Could you try being more specific? For example: 'I'm free from 9 AM to 5 PM' or 'Available Tuesday 2-4 PM'";
+      if (result.success && result.dates) {
+        if (result.dates.length === 0) {
+          botResponseText = "I couldn't identify any specific dates or times in your message. Please try again, for example: 'I'm free on Monday from 10am to 2pm'.";
         } else {
-          // Handle multiple day updates
-          if (result.slots.length > 1) {
-            const firstDay = new Date(result.slots[0].date + 'T00:00:00');
-            const lastDay = new Date(result.slots[result.slots.length - 1].date + 'T00:00:00');
+          const { action, dates } = result;
+          const verb = action === 'remove' ? 'removed' : 'added';
+          const preposition = action === 'remove' ? 'from' : 'to';
 
-            const formattedSlots = result.slots[0].slots.map(slot => {
+          if (dates.length > 1) {
+            const firstDay = new Date(dates[0].date + 'T00:00:00');
+            const lastDay = new Date(dates[dates.length - 1].date + 'T00:00:00');
+            const formattedSlots = dates[0].slots.map(slot => {
+              if (slot.start_hour === 0 && slot.end_hour === 24) return "all day";
               const startTime = new Date();
               startTime.setHours(slot.start_hour, 0, 0, 0);
               const endTime = new Date();
               endTime.setHours(slot.end_hour, 0, 0, 0);
-
               return `${startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })} - ${endTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`;
             }).join(', ');
 
-            botResponseText = `Perfect! I've added your availability from ${firstDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to ${lastDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}: ${formattedSlots}. Is there anything else?`;
+            botResponseText = `Perfect! I've ${verb} your availability from ${firstDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to ${lastDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} for ${formattedSlots}. Is there anything else?`;
           } else {
-            // Format for a single day
-            const formattedSlots = result.slots[0].slots.map(slot => {
+            const day = new Date(dates[0].date + 'T00:00:00');
+            const formattedSlots = dates[0].slots.map(slot => {
+              if (slot.start_hour === 0 && slot.end_hour === 24) return "all day";
               const startTime = new Date();
               startTime.setHours(slot.start_hour, 0, 0, 0);
               const endTime = new Date();
               endTime.setHours(slot.end_hour, 0, 0, 0);
-
               return `${startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })} - ${endTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`;
             }).join(', ');
 
-            const day = new Date(result.slots[0].date + 'T00:00:00');
-
-            botResponseText = `Perfect! I've added your availability for ${day.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}: ${formattedSlots}. Is there anything else you'd like to add?`;
+            botResponseText = `Perfect! I've ${verb} your availability for ${day.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}: ${formattedSlots}. Is there anything else you'd like to change?`;
           }
         }
       } else {

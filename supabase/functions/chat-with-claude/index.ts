@@ -42,9 +42,11 @@ const getSystemPrompt = (contextDate: string) => `You are a helpful scheduling a
    - "start_date": The start date of availability in "YYYY-MM-DD" format.
    - "end_date": The end date of availability in "YYYY-MM-DD" format (optional, only if a range is specified).
    - "slots": An array of time slots, each with "start_hour" and "end_hour" in 24-hour format.
-5. If no specific time slots can be determined, return an object with an empty "slots" array, like { "action": "add", "slots": [] }.
-6. If no date is mentioned, use the context date as the "start_date".
-7. When a day of the week is mentioned (e.g., "next Monday"), calculate the date based on the context date.
+5. If the user indicates they are unavailable for a whole day (e.g., "not free Tuesday", "can't do all of Wednesday"), create a single slot for the entire day from 8 to 24. This is a REMOVE action.
+6. If a message to ADD availability mentions a day but has no specific time information (e.g., "I'm free on Tuesday"), create a single slot for the entire day from 8 to 24.
+7. If a message to ADD availability has no time or date information (e.g. "I'm available"), return an empty "slots" array.
+8. If no date is mentioned, use the context date as the "start_date".
+9. When a day of the week is mentioned (e.g., "next Monday"), calculate the date based on the context date.
 
 Examples of user messages and your expected JSON output:
 - User message: "I'm free from 9 AM to 5 PM" (Context date: "2024-08-15")
@@ -56,7 +58,11 @@ Examples of user messages and your expected JSON output:
 - User message: "remove my availability on august 20th from 9am to 12pm" (Context date: "2024-08-15")
   Your output: { "action": "remove", "start_date": "2024-08-20", "slots": [{ "start_hour": 9, "end_hour": 12 }] }
 - User message: "Actually, I am not free next Monday" (Context date: "2024-08-12")
-  Your output: { "action": "remove", "start_date": "2024-08-19", "slots": [{ "start_hour": 0, "end_hour": 24 }] }
+  Your output: { "action": "remove", "start_date": "2024-08-19", "slots": [{ "start_hour": 8, "end_hour": 24 }] }
+- User message: "I am not available on June 23rd" (Context date: "2024-06-01")
+  Your output: { "action": "remove", "start_date": "2024-06-23", "slots": [{ "start_hour": 8, "end_hour": 24 }] }
+- User message: "I'm free on tuesday june 24th" (Context date: "2024-06-18")
+  Your output: { "action": "add", "start_date": "2024-06-24", "slots": [{ "start_hour": 8, "end_hour": 24 }] }
 - User message: "I can do next monday from 10am to 12pm" (Context date: "2024-08-12")
   Your output: { "action": "add", "start_date": "2024-08-19", "slots": [{ "start_hour": 10, "end_hour": 12 }] }
 - User message: "I'm busy"
@@ -248,6 +254,36 @@ serve(async (req) => {
     );
 
     if (validSlots.length === 0) {
+      if (parsedResponse.action === 'remove' && parsedResponse.start_date) {
+        // If the intention is to remove availability, but no specific slots were identified,
+        // assume the user wants to clear the entire day(s).
+        const fullDaySlot = [{ start_hour: 0, end_hour: 24 }];
+
+        const startDateStr = parsedResponse.start_date || contextDate;
+        const startDate = new Date(`${startDateStr}T00:00:00Z`);
+        const endDateStr = parsedResponse.end_date || startDateStr;
+        const endDate = new Date(`${endDateStr}T00:00:00Z`);
+
+        const dates: DailyAvailability[] = [];
+        const currentDate = new Date(startDate);
+        while (currentDate <= endDate) {
+          dates.push({
+            date: currentDate.toISOString().split('T')[0],
+            slots: fullDaySlot
+          });
+          currentDate.setDate(currentDate.getDate() + 1);
+        }
+
+        const finalResponse = {
+          action: 'remove',
+          dates: dates
+        };
+
+        return new Response(JSON.stringify(finalResponse), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       return new Response(JSON.stringify([]), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
