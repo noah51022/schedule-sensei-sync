@@ -9,22 +9,27 @@ interface RecommendedTimesProps {
   availabilityVersion: number;
 }
 
-type Availability = Database['public']['Tables']['availability']['Row'];
-
 interface TimeSlot {
   date: string;
   startHour: number;
   endHour: number;
 }
 
+interface GroupedSlot {
+  startDate: string;
+  endDate: string;
+  startHour: number;
+  endHour: number;
+}
+
 const RecommendedTimes: React.FC<RecommendedTimesProps> = ({ eventId, participants, availabilityVersion }) => {
-  const [recommendedSlots, setRecommendedSlots] = useState<TimeSlot[]>([]);
+  const [groupedSlots, setGroupedSlots] = useState<GroupedSlot[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const findRecommendedTimes = async () => {
       if (!eventId || participants.length === 0) {
-        setRecommendedSlots([]);
+        setGroupedSlots([]);
         setIsLoading(false);
         return;
       }
@@ -40,7 +45,7 @@ const RecommendedTimes: React.FC<RecommendedTimesProps> = ({ eventId, participan
 
         const totalParticipants = participants.length;
         if (totalParticipants === 0) {
-          setRecommendedSlots([]);
+          setGroupedSlots([]);
           setIsLoading(false);
           return;
         }
@@ -63,7 +68,9 @@ const RecommendedTimes: React.FC<RecommendedTimesProps> = ({ eventId, participan
         }
 
         const commonSlots: TimeSlot[] = [];
-        for (const date in availabilityByDate) {
+        const sortedDates = Object.keys(availabilityByDate).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+
+        for (const date of sortedDates) {
           let startHour: number | null = null;
           for (let hour = 0; hour <= 23; hour++) {
             const participantsForSlot = availabilityByDate[date][hour] || new Set();
@@ -84,11 +91,43 @@ const RecommendedTimes: React.FC<RecommendedTimesProps> = ({ eventId, participan
           }
         }
 
-        setRecommendedSlots(commonSlots);
+        if (commonSlots.length === 0) {
+          setGroupedSlots([]);
+        } else {
+          const newGroupedSlots: GroupedSlot[] = [];
+          let currentGroup = {
+            startDate: commonSlots[0].date,
+            endDate: commonSlots[0].date,
+            startHour: commonSlots[0].startHour,
+            endHour: commonSlots[0].endHour,
+          };
+
+          for (let i = 1; i < commonSlots.length; i++) {
+            const currentSlot = commonSlots[i];
+            const prevGroupEndDate = new Date(currentGroup.endDate + 'T00:00:00');
+            const currentDate = new Date(currentSlot.date + 'T00:00:00');
+            const dayDifference = (currentDate.getTime() - prevGroupEndDate.getTime()) / (1000 * 60 * 60 * 24);
+            const isSameTime = currentSlot.startHour === currentGroup.startHour && currentSlot.endHour === currentGroup.endHour;
+
+            if (dayDifference === 1 && isSameTime) {
+              currentGroup.endDate = currentSlot.date;
+            } else {
+              newGroupedSlots.push(currentGroup);
+              currentGroup = {
+                startDate: currentSlot.date,
+                endDate: currentSlot.date,
+                startHour: currentSlot.startHour,
+                endHour: currentSlot.endHour,
+              };
+            }
+          }
+          newGroupedSlots.push(currentGroup);
+          setGroupedSlots(newGroupedSlots);
+        }
 
       } catch (error) {
         console.error("Error fetching or processing availability:", error);
-        setRecommendedSlots([]);
+        setGroupedSlots([]);
       } finally {
         setIsLoading(false);
       }
@@ -103,17 +142,37 @@ const RecommendedTimes: React.FC<RecommendedTimesProps> = ({ eventId, participan
     return `${h}:00 ${ampm}`;
   }
 
+  const formatDateRange = (startDateStr: string, endDateStr: string) => {
+    const startDate = new Date(startDateStr + 'T00:00:00');
+    const endDate = new Date(endDateStr + 'T00:00:00');
+
+    const singleDateOptions: Intl.DateTimeFormatOptions = { weekday: 'long', month: 'short', day: 'numeric' };
+
+    if (startDateStr === endDateStr) {
+      return startDate.toLocaleDateString('en-US', singleDateOptions);
+    }
+
+    const rangeStartOptions: Intl.DateTimeFormatOptions = { weekday: 'long', month: 'short', day: 'numeric' };
+    let rangeEndOptions: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'numeric' };
+
+    if (startDate.getMonth() !== endDate.getMonth()) {
+      rangeEndOptions = { weekday: 'long', month: 'short', day: 'numeric' };
+    }
+
+    return `${startDate.toLocaleDateString('en-US', rangeStartOptions)} - ${endDate.toLocaleDateString('en-US', rangeEndOptions)}`;
+  };
+
   return (
     <div className="bg-card border border-border rounded-lg p-4">
       <h3 className="font-semibold text-foreground mb-4">Recommended Times</h3>
       <div className="space-y-2">
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Calculating best times...</p>
-        ) : recommendedSlots.length > 0 ? (
-          recommendedSlots.map((slot, index) => (
+        ) : groupedSlots.length > 0 ? (
+          groupedSlots.map((slot, index) => (
             <div key={index} className="bg-muted p-2 rounded-md text-sm">
               <p className="font-medium">
-                {new Date(slot.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                {formatDateRange(slot.startDate, slot.endDate)}
               </p>
               <p className="text-muted-foreground">
                 {formatTime(slot.startHour)} - {formatTime(slot.endHour)}
