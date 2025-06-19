@@ -94,35 +94,57 @@ export const AvailabilityGrid = ({ selectedDate, eventId, availabilityVersion, o
       const dateStr = selectedDate.toISOString().split('T')[0];
       const isCurrentlyAvailable = timeSlots[hour].isUserAvailable;
 
-      if (isCurrentlyAvailable) {
-        // Remove availability
-        const { error } = await supabase
-          .from('availability')
-          .delete()
-          .eq('event_id', eventId)
-          .eq('user_id', user.id)
-          .eq('date', dateStr)
-          .eq('start_hour', hour);
+      // Optimistically update the UI immediately
+      const updatedSlots = [...timeSlots];
+      updatedSlots[hour] = {
+        ...updatedSlots[hour],
+        isUserAvailable: !isCurrentlyAvailable,
+        available: isCurrentlyAvailable ? Math.max(0, updatedSlots[hour].available - 1) : updatedSlots[hour].available + 1
+      };
+      setTimeSlots(updatedSlots);
 
-        if (error) throw error;
+      if (isCurrentlyAvailable) {
+        // Remove availability using the same RPC that chat uses
+        // This handles overlapping intervals properly
+        const { error } = await supabase.rpc('delete_availability_slots', {
+          p_event_id: eventId,
+          p_user_id: user.id,
+          p_start_date: dateStr,
+          p_end_date: dateStr,
+          p_slots: [{ start_hour: hour, end_hour: hour + 1 }]
+        });
+
+        if (error) {
+          // Revert optimistic update on error
+          setTimeSlots(timeSlots);
+          throw error;
+        }
       } else {
         // Add availability
+        const insertData = {
+          event_id: eventId,
+          user_id: user.id,
+          date: dateStr,
+          start_hour: hour,
+          end_hour: hour + 1
+        };
+
         const { error } = await supabase
           .from('availability')
-          .insert({
-            event_id: eventId,
-            user_id: user.id,
-            date: dateStr,
-            start_hour: hour,
-            end_hour: hour + 1
-          });
+          .insert(insertData);
 
-        if (error) throw error;
+        if (error) {
+          // Revert optimistic update on error
+          setTimeSlots(timeSlots);
+          throw error;
+        }
       }
 
       // Refresh availability data
-      // await fetchAvailability();
       onAvailabilityChange();
+
+      // Also directly refresh the local state to ensure immediate update
+      await fetchAvailability();
 
       toast({
         title: "Success",
