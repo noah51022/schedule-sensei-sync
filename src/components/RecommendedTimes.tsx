@@ -72,7 +72,7 @@ const RecommendedTimes: React.FC<RecommendedTimesProps> = ({ eventId, participan
 
         for (const date of sortedDates) {
           let startHour: number | null = null;
-          for (let hour = 0; hour <= 23; hour++) {
+          for (let hour = 8; hour <= 23; hour++) {
             const participantsForSlot = availabilityByDate[date][hour] || new Set();
 
             if (participantsForSlot.size === totalParticipants) {

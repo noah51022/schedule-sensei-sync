@@ -160,19 +160,19 @@ export const AvailabilityGrid = ({ selectedDate, eventId, availabilityVersion, o
       </div>
 
       <div className="grid grid-cols-1 gap-2 max-h-96 overflow-y-auto">
-        {timeSlots.map((slot, index) => (
+        {timeSlots.slice(8).map((slot) => (
           <Button
-            key={index}
+            key={slot.hour}
             variant="outline"
             className={cn(
               "flex items-center justify-between p-3 h-auto",
               "hover:border-primary hover:shadow-sm",
-              hoveredSlot === index && "border-primary shadow-sm",
+              hoveredSlot === slot.hour && "border-primary shadow-sm",
               isLoading && "opacity-50 cursor-not-allowed"
             )}
             disabled={isLoading}
             onClick={() => toggleAvailability(slot.hour)}
-            onMouseEnter={() => setHoveredSlot(index)}
+            onMouseEnter={() => setHoveredSlot(slot.hour)}
             onMouseLeave={() => setHoveredSlot(null)}
           >
             <div className="flex items-center space-x-3">
