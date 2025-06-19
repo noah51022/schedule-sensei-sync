@@ -211,7 +211,7 @@ const Index = () => {
     };
   }, [eventId]);
 
-  const handleAvailabilityUpdate = async (message: string): Promise<{ success: boolean; slots?: DailyAvailability[]; error?: string }> => {
+  const handleAvailabilityUpdate = async (message: string): Promise<{ success: boolean; dates?: DailyAvailability[]; action?: 'add' | 'remove'; error?: string }> => {
     if (!user || !eventId) {
       return { success: false, error: "User or event not found" };
     }
@@ -284,9 +284,7 @@ const Index = () => {
         }
 
         setAvailabilityVersion(v => v + 1);
-        // The return type of handleAvailabilityUpdate expects slots, but the new AI response is different.
-        // For now, returning the slots from the first day for any UI feedback.
-        return { success: true, slots: data.dates };
+        return { success: true, dates: data.dates, action: data.action };
       } else {
         return { success: false, error: "No time slots were identified" };
       }
