@@ -101,43 +101,8 @@ const Index = () => {
             setSelectedDate(startDate);
           }
 
-          // Fetch participant info for the global event
-          const { data: availabilityData, error: availabilityError } = await supabase
-            .from('availability')
-            .select('user_id')
-            .eq('event_id', currentEventId);
-
-          if (availabilityError) {
-            console.warn('Error fetching availability for participant count:', availabilityError);
-            setParticipants([]);
-          } else if (availabilityData) {
-            const uniqueUserIds = [...new Set(availabilityData.map(a => a.user_id))];
-
-            if (uniqueUserIds.length > 0) {
-              const { data: profiles, error: profilesError } = await supabase
-                .from('profiles')
-                .select('user_id, display_name')
-                .in('user_id', uniqueUserIds);
-
-              if (profilesError) {
-                console.warn('Error fetching participant profiles:', profilesError);
-                setParticipants(uniqueUserIds.map(id => ({ id, display_name: 'Participant' })));
-              } else {
-                const participantMap = new Map(profiles.map(p => [p.user_id, p.display_name]));
-                setParticipants(uniqueUserIds.map(userId => ({
-                  id: userId,
-                  display_name: participantMap.get(userId) || 'Anonymous User'
-                })));
-              }
-            } else {
-              setParticipants([]);
-            }
-          }
-        } else {
-          setParticipants([]);
+          setAvailabilityVersion(v => v + 1); // Trigger initial participant fetch
         }
-
-        setAvailabilityVersion(v => v + 1);
       } catch (error) {
         console.error('Error setting up event:', error);
         toast({
@@ -152,6 +117,52 @@ const Index = () => {
 
     setupEvent();
   }, [user]);
+
+  useEffect(() => {
+    if (!eventId) return;
+
+    const fetchParticipants = async () => {
+      // Fetch participant info for the global event
+      const { data: availabilityData, error: availabilityError } = await supabase
+        .from('availability')
+        .select('user_id')
+        .eq('event_id', eventId);
+
+      if (availabilityError) {
+        console.warn('Error fetching availability for participant count:', availabilityError);
+        setParticipants([]);
+        return;
+      }
+
+      if (availabilityData) {
+        const uniqueUserIds = [...new Set(availabilityData.map(a => a.user_id).filter(id => id !== null))] as string[];
+
+        if (uniqueUserIds.length > 0) {
+          const { data: profiles, error: profilesError } = await supabase
+            .from('profiles')
+            .select('user_id, display_name')
+            .in('user_id', uniqueUserIds);
+
+          if (profilesError) {
+            console.warn('Error fetching participant profiles:', profilesError);
+            setParticipants(uniqueUserIds.map(id => ({ id, display_name: 'Participant' })));
+          } else {
+            const participantMap = new Map(profiles.map(p => [p.user_id, p.display_name]));
+            setParticipants(uniqueUserIds.map(userId => ({
+              id: userId,
+              display_name: participantMap.get(userId) || 'Anonymous User'
+            })));
+          }
+        } else {
+          setParticipants([]);
+        }
+      } else {
+        setParticipants([]);
+      }
+    };
+
+    fetchParticipants();
+  }, [eventId, availabilityVersion]);
 
   // Sets up realtime listeners for availability and event changes
   useEffect(() => {
