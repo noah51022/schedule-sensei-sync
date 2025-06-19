@@ -220,7 +220,11 @@ const Index = () => {
       const { data, error } = await supabase.functions.invoke<ClaudeFunctionResponse>('chat-with-claude', {
         body: {
           message,
-          date: selectedDate.toISOString()
+          date: selectedDate.toISOString(),
+          dateRange: {
+            start: dateRange.start.toISOString(),
+            end: dateRange.end.toISOString()
+          }
         }
       });
 

@@ -63,37 +63,41 @@ const corsHeaders = {
 };
 
 const SYSTEM_PROMPT = `You are a helpful scheduling assistant. Your task is to:
-1. Parse natural language descriptions of availability into specific time slots
-2. Return these as an array of time slots in 24-hour format
-3. Only include slots that are clearly specified in the message
+1. Parse natural language descriptions of availability into specific time slots for specific dates
+2. Handle both single-day and multi-day availability requests
+3. Return the results as a JSON object with date-specific time slots
 
 CRITICAL: Always use 24-hour format for times. Convert AM/PM times correctly:
 - 12 AM = 0, 1 AM = 1, ..., 11 AM = 11
 - 12 PM = 12, 1 PM = 13, ..., 11 PM = 23
 
 SPECIAL CASES for "all day" expressions:
-- "all day", "entire day", "whole day", "free all day", "available all day" → [{ "start_hour": 8, "end_hour": 20 }]
+- "all day", "entire day", "whole day", "free all day", "available all day" → [{ "start_hour": 8, "end_hour": 24 }]
 - "24/7", "24 hours", "round the clock" → [{ "start_hour": 0, "end_hour": 24 }]
 
-For example:
-"I'm free from 9 AM to 5 PM" → [{ "start_hour": 9, "end_hour": 17 }]
-"I'm free from 9am to 5pm on tuesday june 24th" → [{ "start_hour": 9, "end_hour": 17 }]
-"Available 2-4 PM and 6-8 PM" → [{ "start_hour": 14, "end_hour": 16 }, { "start_hour": 18, "end_hour": 20 }]
-"I'm free all day" → [{ "start_hour": 8, "end_hour": 20 }]
-"Available all day Saturday" → [{ "start_hour": 8, "end_hour": 20 }]
-"Free the whole day" → [{ "start_hour": 8, "end_hour": 20 }]
+For MULTI-DAY requests, analyze the date range and apply the time slots to each applicable date:
+- "I'm free all of August" → Apply default all-day hours (8-24) to all August days
+- "Available July 10th-15th from 9am-5pm" → Apply 9-17 to July 10,11,12,13,14,15
+- "Free Monday through Friday this week" → Apply to weekdays only
+- "Available next week" → Apply to all 7 days of next week
 
-If no specific time slots can be determined, return an empty array: []
-If times are ambiguous or unclear, err on the side of not including them.
+Your response must be a JSON object with this exact structure:
+{
+  "action": "add" | "remove",
+  "dates": [
+    {
+      "date": "YYYY-MM-DD",
+      "slots": [{ "start_hour": number, "end_hour": number }]
+    }
+  ]
+}
 
-IMPORTANT: Your response must be ONLY a valid JSON array of time slots. Do not include any explanatory text,
- markdown formatting, or other content. Just the pure JSON array.
+Examples:
+- Single day: { "action": "add", "dates": [{ "date": "2024-01-15", "slots": [{ "start_hour": 9, "end_hour": 17 }] }] }
+- Multiple days: { "action": "add", "dates": [{ "date": "2024-01-15", "slots": [{ "start_hour": 8, "end_hour": 24 }] }, { "date": "2024-01-16", "slots": [{ "start_hour": 8, "end_hour": 24 }] }] }
+- Remove availability: { "action": "remove", "dates": [{ "date": "2024-01-15", "slots": [{ "start_hour": 9, "end_hour": 17 }] }] }
 
-Examples of correct responses:
-[]
-[{ "start_hour": 9, "end_hour": 17 }]
-[{ "start_hour": 14, "end_hour": 16 }, { "start_hour": 18, "end_hour": 20 }]
-[{ "start_hour": 8, "end_hour": 20 }]`;
+IMPORTANT: Your response must be ONLY valid JSON. No explanatory text or markdown formatting.`;
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -120,9 +124,10 @@ serve(async (req) => {
       );
     }
 
-    const { message, date } = requestBody;
+    const { message, date, dateRange } = requestBody;
     console.log('Received message:', message);
     console.log('Received date:', date);
+    console.log('Received dateRange:', dateRange);
 
     if (!message) {
       console.error('Message is missing from request');
@@ -139,9 +144,16 @@ serve(async (req) => {
     }
 
     // Add date context to the message if provided
-    const userMessage = date
-      ? `For ${new Date(date).toLocaleDateString()}, ${message}`
-      : message;
+    let contextualMessage = message;
+    if (dateRange && dateRange.start && dateRange.end) {
+      const startDate = new Date(dateRange.start).toLocaleDateString();
+      const endDate = new Date(dateRange.end).toLocaleDateString();
+      contextualMessage = `Context: Current calendar shows ${startDate} to ${endDate}. Today is ${new Date().toLocaleDateString()}. User message: ${message}`;
+    } else if (date) {
+      contextualMessage = `For ${new Date(date).toLocaleDateString()}, ${message}`;
+    }
+
+    const userMessage = contextualMessage;
 
     console.log('Making request to Claude API with message:', userMessage);
     console.log('Authorization header starts with:', `Bearer ${anthropicApiKey}`.substring(0, 20));
@@ -264,19 +276,19 @@ serve(async (req) => {
 
     console.log('Cleaned Claude response text:', cleanedText);
 
-    let slots;
+    let parsedResponse;
     try {
-      slots = JSON.parse(cleanedText);
+      parsedResponse = JSON.parse(cleanedText);
     } catch (parseError) {
       console.error('Failed to parse Claude response as JSON:', parseError);
       console.error('Claude response text:', cleanedText);
 
       // Try to extract JSON from the response if it contains explanatory text
-      const jsonMatch = cleanedText.match(/\[.*\]/s);
+      const jsonMatch = cleanedText.match(/\{.*\}/s);
       if (jsonMatch) {
         try {
-          slots = JSON.parse(jsonMatch[0]);
-          console.log('Successfully extracted JSON from text:', slots);
+          parsedResponse = JSON.parse(jsonMatch[0]);
+          console.log('Successfully extracted JSON from text:', parsedResponse);
         } catch (extractError) {
           console.error('Failed to extract JSON:', extractError);
           return new Response(
@@ -310,13 +322,92 @@ serve(async (req) => {
       }
     }
 
-    console.log('Parsed time slots:', slots);
+    console.log('Parsed Claude response:', parsedResponse);
 
-    // Validate the response format
-    if (!Array.isArray(slots)) {
-      console.error('Response is not an array:', slots);
+    // Handle both old format (array of slots) and new format (object with action and dates)
+    let functionResponse: ClaudeFunctionResponse;
+
+    if (Array.isArray(parsedResponse)) {
+      // Legacy format - convert to new format
+      console.log('Converting legacy slot array format');
+      const validSlots: TimeSlot[] = [];
+      for (const slot of parsedResponse) {
+        if (typeof slot === 'object' && slot !== null) {
+          const correctedSlot = correctTimeSlot(slot, message);
+          if (correctedSlot) {
+            validSlots.push(correctedSlot);
+          }
+        }
+      }
+
+      functionResponse = {
+        action: 'add',
+        dates: validSlots.length > 0 ? [{
+          date: date ? new Date(date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+          slots: validSlots
+        }] : []
+      };
+    } else if (parsedResponse && typeof parsedResponse === 'object' && parsedResponse.action && parsedResponse.dates) {
+      // New format - validate and process
+      console.log('Processing new object format');
+
+      if (!['add', 'remove'].includes(parsedResponse.action)) {
+        console.error('Invalid action:', parsedResponse.action);
+        return new Response(
+          JSON.stringify({ error: 'Invalid action in Claude response' }),
+          {
+            status: 500,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+      }
+
+      if (!Array.isArray(parsedResponse.dates)) {
+        console.error('Invalid dates format:', parsedResponse.dates);
+        return new Response(
+          JSON.stringify({ error: 'Invalid dates format in Claude response' }),
+          {
+            status: 500,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+      }
+
+      // Validate and correct each date entry
+      const validDates: DailyAvailability[] = [];
+      for (const dateEntry of parsedResponse.dates) {
+        if (dateEntry && typeof dateEntry === 'object' && dateEntry.date && Array.isArray(dateEntry.slots)) {
+          const validSlots: TimeSlot[] = [];
+          for (const slot of dateEntry.slots) {
+            const correctedSlot = correctTimeSlot(slot, message);
+            if (correctedSlot) {
+              validSlots.push(correctedSlot);
+            }
+          }
+
+          if (validSlots.length > 0) {
+            validDates.push({
+              date: dateEntry.date,
+              slots: validSlots
+            });
+          }
+        }
+      }
+
+      functionResponse = {
+        action: parsedResponse.action,
+        dates: validDates
+      };
+    } else {
+      console.error('Invalid response format:', parsedResponse);
       return new Response(
-        JSON.stringify({ error: 'Invalid response format from Claude - not an array' }),
+        JSON.stringify({ error: 'Invalid response format from Claude' }),
         {
           status: 500,
           headers: {
@@ -326,34 +417,6 @@ serve(async (req) => {
         }
       );
     }
-
-    console.log('Raw slots from Claude:', slots);
-
-    // Apply time correction and validation - ENHANCED VERSION
-    const validSlots: TimeSlot[] = [];
-    for (const slot of slots) {
-      if (typeof slot === 'object' && slot !== null) {
-        const correctedSlot = correctTimeSlot(slot, message);
-        if (correctedSlot) {
-          validSlots.push(correctedSlot);
-        } else {
-          console.log('Slot rejected after correction:', slot);
-        }
-      } else {
-        console.log('Invalid slot object:', slot);
-      }
-    }
-
-    console.log('Valid time slots after correction:', validSlots);
-
-    // Format response to match expected frontend interface
-    const functionResponse: ClaudeFunctionResponse = {
-      action: 'add', // Default to 'add' for now, could be enhanced to detect 'remove' intent
-      dates: validSlots.length > 0 ? [{
-        date: date ? new Date(date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-        slots: validSlots
-      }] : []
-    };
 
     console.log('Final response:', functionResponse);
 
