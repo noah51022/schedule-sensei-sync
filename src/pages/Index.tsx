@@ -38,7 +38,7 @@ const Index = () => {
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Create or fetch event when date range changes
+  // Fetches or creates a single global event for all users
   useEffect(() => {
     const setupEvent = async () => {
       if (!user) return;
@@ -46,43 +46,57 @@ const Index = () => {
       try {
         setIsLoading(true);
 
-        // Try to find an existing event for this date range
+        // Fetch the single global event (the first one ever created)
         const { data: existingEvents, error: fetchError } = await supabase
           .from('events')
-          .select('id')
-          .eq('creator_id', user.id)
-          .gte('start_date', dateRange.start.toISOString().split('T')[0])
-          .lte('end_date', dateRange.end.toISOString().split('T')[0])
+          .select('*')
+          .order('created_at', { ascending: true })
           .limit(1);
 
         if (fetchError) throw fetchError;
 
-        let currentEventId: string | null = null;
+        let currentEvent: Database['public']['Tables']['events']['Row'] | null = null;
 
         if (existingEvents && existingEvents.length > 0) {
-          currentEventId = existingEvents[0].id;
+          currentEvent = existingEvents[0];
         } else {
-          // Create a new event
+          // No event exists, so this user creates the first one.
+          const start = new Date();
+          start.setHours(0, 0, 0, 0);
+          const end = new Date();
+          end.setDate(end.getDate() + 7);
+          end.setHours(23, 59, 59, 999);
+
           const { data: newEvent, error: createError } = await supabase
             .from('events')
             .insert({
               creator_id: user.id,
-              title: `Availability for ${dateRange.start.toLocaleDateString()} - ${dateRange.end.toLocaleDateString()}`,
-              start_date: dateRange.start.toISOString().split('T')[0],
-              end_date: dateRange.end.toISOString().split('T')[0]
+              title: 'Team Availability Calendar',
+              start_date: start.toISOString().split('T')[0],
+              end_date: end.toISOString().split('T')[0]
             })
-            .select('id')
+            .select('*')
             .single();
 
           if (createError) throw createError;
-          if (newEvent) currentEventId = newEvent.id;
+          currentEvent = newEvent;
         }
 
-        // Set the event ID first
-        setEventId(currentEventId);
+        if (currentEvent) {
+          const currentEventId = currentEvent.id;
+          setEventId(currentEventId);
 
-        // Only fetch participant count if we have an event ID
-        if (currentEventId) {
+          // Using UTC date strings and ensuring local time interpretation
+          const startDate = new Date(currentEvent.start_date + 'T00:00:00');
+          const endDate = new Date(currentEvent.end_date + 'T00:00:00');
+          endDate.setHours(23, 59, 59, 999);
+
+          setDateRange({ start: startDate, end: endDate });
+          if (selectedDate < startDate || selectedDate > endDate) {
+            setSelectedDate(startDate);
+          }
+
+          // Fetch participant info for the global event
           const { data: availabilityData, error: availabilityError } = await supabase
             .from('availability')
             .select('user_id')
@@ -102,7 +116,6 @@ const Index = () => {
 
               if (profilesError) {
                 console.warn('Error fetching participant profiles:', profilesError);
-                // Fallback to showing user IDs or a generic name
                 setParticipants(uniqueUserIds.map(id => ({ id, display_name: 'Participant' })));
               } else {
                 const participantMap = new Map(profiles.map(p => [p.user_id, p.display_name]));
@@ -133,7 +146,49 @@ const Index = () => {
     };
 
     setupEvent();
-  }, [dateRange, user]);
+  }, [user]);
+
+  // Sets up realtime listeners for availability and event changes
+  useEffect(() => {
+    if (!eventId) return;
+
+    const channel = supabase.channel(`global-event-updates-${eventId}`);
+
+    channel
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'availability', filter: `event_id=eq.${eventId}` },
+        (payload) => {
+          console.log('Availability change received!', payload);
+          toast({
+            title: "Calendar updated",
+            description: "A team member's availability has changed.",
+          });
+          setAvailabilityVersion(v => v + 1);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'events', filter: `id=eq.${eventId}` },
+        (payload) => {
+          console.log('Event details change received!', payload);
+          const newEvent = payload.new as Database['public']['Tables']['events']['Row'];
+          const startDate = new Date(newEvent.start_date + 'T00:00:00');
+          const endDate = new Date(newEvent.end_date + 'T00:00:00');
+          endDate.setHours(23, 59, 59, 999);
+          setDateRange({ start: startDate, end: endDate });
+          toast({
+            title: "Date range updated",
+            description: "The event date range has been changed.",
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [eventId]);
 
   const handleAvailabilityUpdate = async (message: string): Promise<{ success: boolean; slots?: any[]; error?: string }> => {
     if (!user || !eventId) {
@@ -199,12 +254,32 @@ const Index = () => {
     return `${dateRange.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${dateRange.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
   };
 
-  const handleDateRangeChange = (newRange: { start: Date; end: Date }) => {
+  const handleDateRangeChange = async (newRange: { start: Date; end: Date }) => {
+    if (!eventId) return;
+
+    // Optimistically update UI
     setDateRange(newRange);
-    // If the currently selected date is outside the new range,
-    // update it to the start of the new range
     if (selectedDate < newRange.start || selectedDate > newRange.end) {
       setSelectedDate(newRange.start);
+    }
+
+    // Persist change to the database
+    const { error } = await supabase
+      .from('events')
+      .update({
+        start_date: newRange.start.toISOString().split('T')[0],
+        end_date: newRange.end.toISOString().split('T')[0]
+      })
+      .eq('id', eventId);
+
+    if (error) {
+      console.error('Failed to update date range:', error);
+      toast({
+        title: "Error",
+        description: "Could not save the new date range.",
+        variant: "destructive",
+      });
+      // Here you might want to revert the optimistic update
     }
   };
 
