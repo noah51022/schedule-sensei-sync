@@ -12,6 +12,11 @@ import type { Database } from "@/integrations/supabase/types";
 import { toast } from "@/components/ui/use-toast";
 import { Participant } from "@/components/ParticipantsPopover";
 
+interface DailyAvailability {
+  date: string; // YYYY-MM-DD
+  slots: { start_hour: number; end_hour: number }[];
+}
+
 const Index = () => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
@@ -190,17 +195,13 @@ const Index = () => {
     };
   }, [eventId]);
 
-  const handleAvailabilityUpdate = async (message: string): Promise<{ success: boolean; slots?: any[]; error?: string }> => {
+  const handleAvailabilityUpdate = async (message: string): Promise<{ success: boolean; slots?: DailyAvailability[]; error?: string }> => {
     if (!user || !eventId) {
       return { success: false, error: "User or event not found" };
     }
 
     try {
-      // The AI will process this input through the Edge Function
-      const { data, error } = await supabase.functions.invoke<{
-        start_hour: number;
-        end_hour: number;
-      }[]>('chat-with-claude', {
+      const { data, error } = await supabase.functions.invoke<DailyAvailability[]>('chat-with-claude', {
         body: {
           message,
           date: selectedDate.toISOString()
@@ -213,19 +214,20 @@ const Index = () => {
       }
 
       if (data && Array.isArray(data)) {
-        // Update availability in the database
-        for (const slot of data) {
-          const { error: insertError } = await supabase.from('availability').insert({
-            event_id: eventId,
-            user_id: user.id,
-            date: selectedDate.toISOString().split('T')[0],
-            start_hour: slot.start_hour,
-            end_hour: slot.end_hour
-          });
+        for (const day of data) {
+          for (const slot of day.slots) {
+            const { error: insertError } = await supabase.from('availability').insert({
+              event_id: eventId,
+              user_id: user.id,
+              date: day.date,
+              start_hour: slot.start_hour,
+              end_hour: slot.end_hour
+            });
 
-          if (insertError) {
-            console.error('Database insert error:', insertError);
-            return { success: false, error: "Failed to save availability to database" };
+            if (insertError) {
+              console.error('Database insert error:', insertError);
+              return { success: false, error: "Failed to save availability to database" };
+            }
           }
         }
 

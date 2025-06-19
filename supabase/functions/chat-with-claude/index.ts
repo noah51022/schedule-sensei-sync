@@ -14,6 +14,17 @@ interface TimeSlot {
   end_hour: number;
 }
 
+interface ClaudeResponse {
+  start_date?: string; // YYYY-MM-DD
+  end_date?: string; // YYYY-MM-DD
+  slots: TimeSlot[];
+}
+
+interface DailyAvailability {
+  date: string; // YYYY-MM-DD
+  slots: TimeSlot[];
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': '*',
@@ -21,24 +32,31 @@ const corsHeaders = {
   'Access-Control-Request-Headers': '*'
 };
 
-const SYSTEM_PROMPT = `You are a helpful scheduling assistant. Your task is to:
-1. Parse natural language descriptions of availability into specific time slots
-2. Return these as an array of time slots in 24-hour format
-3. Only include slots that are clearly specified in the message
+const getSystemPrompt = (contextDate: string) => `You are a helpful scheduling assistant. Your task is to:
+1. Parse natural language descriptions of availability into specific time slots and date ranges.
+2. The user is currently viewing the date: ${contextDate}. Use this for context if the user's message is ambiguous about dates (e.g., "tomorrow"). Today's actual date is not as relevant as the date they are viewing.
+3. Return a JSON object with:
+   - "start_date": The start date of availability in "YYYY-MM-DD" format.
+   - "end_date": The end date of availability in "YYYY-MM-DD" format (optional, only if a range is specified).
+   - "slots": An array of time slots, each with "start_hour" and "end_hour" in 24-hour format.
+4. If no specific time slots can be determined, return an object with an empty "slots" array, like { "slots": [] }.
+5. If no date is mentioned, use the context date as the "start_date".
+6. When a day of the week is mentioned (e.g., "next Monday"), calculate the date based on the context date.
 
-For example:
-"I'm free from 9 AM to 5 PM" → [{ "start_hour": 9, "end_hour": 17 }]
-"Available 2-4 PM and 6-8 PM" → [{ "start_hour": 14, "end_hour": 16 }, { "start_hour": 18, "end_hour": 20 }]
+Examples of user messages and your expected JSON output:
+- User message: "I'm free from 9 AM to 5 PM" (Context date: "2024-08-15")
+  Your output: { "start_date": "2024-08-15", "slots": [{ "start_hour": 9, "end_hour": 17 }] }
+- User message: "Available 2-4 PM and 6-8 PM tomorrow" (Context date: "2024-08-15")
+  Your output: { "start_date": "2024-08-16", "slots": [{ "start_hour": 14, "end_hour": 16 }, { "start_hour": 18, "end_hour": 20 }] }
+- User message: "I'm available from 9-5 from august 5th to august 8th" (Context date: "2024-08-15")
+  Your output: { "start_date": "2024-08-05", "end_date": "2024-08-08", "slots": [{ "start_hour": 9, "end_hour": 17 }] }
+- User message: "I can do next monday from 10am to 12pm" (Context date: "2024-08-12")
+  Your output: { "start_date": "2024-08-19", "slots": [{ "start_hour": 10, "end_hour": 12 }] }
+- User message: "I'm busy"
+  Your output: { "slots": [] }
 
-If no specific time slots can be determined, return an empty array: []
-If times are ambiguous or unclear, err on the side of not including them.
-
-IMPORTANT: Your response must be ONLY a valid JSON array of time slots. Do not include any explanatory text, markdown formatting, or other content. Just the pure JSON array.
-
-Examples of correct responses:
-[]
-[{ "start_hour": 9, "end_hour": 17 }]
-[{ "start_hour": 14, "end_hour": 16 }, { "start_hour": 18, "end_hour": 20 }]`;
+IMPORTANT: Your response must be ONLY a valid JSON object. Do not include any explanatory text, markdown formatting, or other content. Just the pure JSON object.
+`;
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -83,12 +101,10 @@ serve(async (req) => {
       );
     }
 
-    // Add date context to the message if provided
-    const userMessage = date
-      ? `For ${new Date(date).toLocaleDateString()}, ${message}`
-      : message;
+    const contextDate = date ? new Date(date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+    const systemPrompt = getSystemPrompt(contextDate);
 
-    console.log('Making request to Claude API with message:', userMessage);
+    console.log('Making request to Claude API with message:', message);
     console.log('Authorization header starts with:', `Bearer ${anthropicApiKey}`.substring(0, 20));
 
     let response;
@@ -105,9 +121,9 @@ serve(async (req) => {
           max_tokens: 1000,
           messages: [{
             role: 'user',
-            content: userMessage
+            content: message
           }],
-          system: SYSTEM_PROMPT
+          system: systemPrompt
         })
       });
     } catch (fetchError) {
@@ -167,40 +183,14 @@ serve(async (req) => {
 
     console.log('Claude API response:', claudeResponse);
 
-    // Handle new Claude 3 response format
-    if (!claudeResponse.content || !Array.isArray(claudeResponse.content)) {
-      console.error('Unexpected response format:', claudeResponse);
-      return new Response(
-        JSON.stringify({ error: 'Unexpected response format from Claude' }),
-        {
-          status: 500,
-          headers: {
-            ...corsHeaders,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+    if (!claudeResponse.content || !claudeResponse.content[0] || !claudeResponse.content[0].text) {
+      return new Response(JSON.stringify({ error: 'Invalid response format from Claude' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
-    const content = claudeResponse.content[0];
-    if (!content || content.type !== 'text' || typeof content.text !== 'string') {
-      console.error('Invalid content format:', content);
-      return new Response(
-        JSON.stringify({ error: 'Invalid content format from Claude' }),
-        {
-          status: 500,
-          headers: {
-            ...corsHeaders,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-    }
-
-    // Clean the response text to ensure it's valid JSON
-    let cleanedText = content.text.trim();
-
-    // Remove any markdown code block formatting that might be present
+    let cleanedText = claudeResponse.content[0].text.trim();
     if (cleanedText.startsWith('```json')) {
       cleanedText = cleanedText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
     } else if (cleanedText.startsWith('```')) {
@@ -209,72 +199,37 @@ serve(async (req) => {
 
     console.log('Cleaned Claude response text:', cleanedText);
 
-    let slots;
+    let parsedResponse: ClaudeResponse;
     try {
-      slots = JSON.parse(cleanedText);
+      parsedResponse = JSON.parse(cleanedText);
     } catch (parseError) {
-      console.error('Failed to parse Claude response as JSON:', parseError);
-      console.error('Claude response text:', cleanedText);
-
-      // Try to extract JSON from the response if it contains explanatory text
-      const jsonMatch = cleanedText.match(/\[.*\]/s);
+      const jsonMatch = cleanedText.match(/{[\s\S]*}/);
       if (jsonMatch) {
         try {
-          slots = JSON.parse(jsonMatch[0]);
-          console.log('Successfully extracted JSON from text:', slots);
-        } catch (extractError) {
-          console.error('Failed to extract JSON:', extractError);
-          return new Response(
-            JSON.stringify({
-              error: 'Invalid JSON response from Claude',
-              raw_response: cleanedText
-            }),
-            {
-              status: 500,
-              headers: {
-                ...corsHeaders,
-                'Content-Type': 'application/json',
-              },
-            }
-          );
+          parsedResponse = JSON.parse(jsonMatch[0]);
+        } catch (e) {
+          return new Response(JSON.stringify({ error: 'Invalid JSON response from Claude' }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
         }
       } else {
-        return new Response(
-          JSON.stringify({
-            error: 'Invalid JSON response from Claude',
-            raw_response: cleanedText
-          }),
-          {
-            status: 500,
-            headers: {
-              ...corsHeaders,
-              'Content-Type': 'application/json',
-            },
-          }
-        );
+        return new Response(JSON.stringify({ error: 'Could not parse JSON from Claude response' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
       }
     }
 
-    console.log('Parsed time slots:', slots);
-
-    // Validate the response format
-    if (!Array.isArray(slots)) {
-      console.error('Response is not an array:', slots);
-      return new Response(
-        JSON.stringify({ error: 'Invalid response format from Claude - not an array' }),
-        {
-          status: 500,
-          headers: {
-            ...corsHeaders,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+    if (!parsedResponse || !parsedResponse.slots) {
+      return new Response(JSON.stringify({ error: 'Invalid data structure from Claude' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
-    // Validate each slot
-    const validSlots = slots.filter(slot => {
-      return (
+    const validSlots = parsedResponse.slots.filter(
+      (slot) =>
         typeof slot === 'object' &&
         typeof slot.start_hour === 'number' &&
         typeof slot.end_hour === 'number' &&
@@ -283,20 +238,41 @@ serve(async (req) => {
         slot.end_hour > 0 &&
         slot.end_hour <= 24 &&
         slot.start_hour < slot.end_hour
-      );
-    });
-
-    console.log('Valid time slots after filtering:', validSlots);
-
-    return new Response(
-      JSON.stringify(validSlots),
-      {
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json',
-        },
-      },
     );
+
+    if (validSlots.length === 0) {
+      return new Response(JSON.stringify([]), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const startDateStr = parsedResponse.start_date || contextDate;
+    const startDate = new Date(`${startDateStr}T00:00:00Z`);
+    const endDate = parsedResponse.end_date
+      ? new Date(`${parsedResponse.end_date}T00:00:00Z`)
+      : startDate;
+
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+      return new Response(JSON.stringify({ error: 'Invalid date format from Claude' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const dailyAvailabilities: DailyAvailability[] = [];
+    let currentDate = new Date(startDate);
+
+    while (currentDate <= endDate) {
+      dailyAvailabilities.push({
+        date: currentDate.toISOString().split('T')[0],
+        slots: validSlots,
+      });
+      currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+    }
+
+    return new Response(JSON.stringify(dailyAvailabilities), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   } catch (error) {
     console.error('Unexpected error:', error);
     return new Response(

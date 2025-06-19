@@ -13,8 +13,13 @@ interface Message {
   role: 'user' | 'assistant';
 }
 
+interface DailyAvailability {
+  date: string;
+  slots: { start_hour: number; end_hour: number }[];
+}
+
 interface ChatInterfaceProps {
-  onAvailabilityUpdate: (availability: string) => Promise<{ success: boolean; slots?: any[]; error?: string }>;
+  onAvailabilityUpdate: (availability: string) => Promise<{ success: boolean; slots?: DailyAvailability[]; error?: string }>;
   selectedDate: Date;
 }
 
@@ -78,32 +83,39 @@ export const ChatInterface = ({ onAvailabilityUpdate, selectedDate }: ChatInterf
         if (result.slots.length === 0) {
           botResponseText = "I couldn't identify any specific time slots in your message. Could you try being more specific? For example: 'I'm free from 9 AM to 5 PM' or 'Available Tuesday 2-4 PM'";
         } else {
-          // Format the parsed time slots for user feedback
-          const formattedSlots = result.slots.map(slot => {
-            const startTime = new Date();
-            startTime.setHours(slot.start_hour, 0, 0, 0);
-            const endTime = new Date();
-            endTime.setHours(slot.end_hour, 0, 0, 0);
+          // Handle multiple day updates
+          if (result.slots.length > 1) {
+            const firstDay = new Date(result.slots[0].date + 'T00:00:00');
+            const lastDay = new Date(result.slots[result.slots.length - 1].date + 'T00:00:00');
 
-            return `${startTime.toLocaleTimeString('en-US', {
-              hour: 'numeric',
-              minute: '2-digit',
-              hour12: true
-            })} - ${endTime.toLocaleTimeString('en-US', {
-              hour: 'numeric',
-              minute: '2-digit',
-              hour12: true
-            })}`;
-          }).join(', ');
+            const formattedSlots = result.slots[0].slots.map(slot => {
+              const startTime = new Date();
+              startTime.setHours(slot.start_hour, 0, 0, 0);
+              const endTime = new Date();
+              endTime.setHours(slot.end_hour, 0, 0, 0);
 
-          botResponseText = `Perfect! I've added your availability for ${selectedDate.toLocaleDateString('en-US', {
-            weekday: 'long',
-            month: 'short',
-            day: 'numeric'
-          })}: ${formattedSlots}. Is there anything else you'd like to add?`;
+              return `${startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })} - ${endTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`;
+            }).join(', ');
+
+            botResponseText = `Perfect! I've added your availability from ${firstDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to ${lastDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}: ${formattedSlots}. Is there anything else?`;
+          } else {
+            // Format for a single day
+            const formattedSlots = result.slots[0].slots.map(slot => {
+              const startTime = new Date();
+              startTime.setHours(slot.start_hour, 0, 0, 0);
+              const endTime = new Date();
+              endTime.setHours(slot.end_hour, 0, 0, 0);
+
+              return `${startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })} - ${endTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`;
+            }).join(', ');
+
+            const day = new Date(result.slots[0].date + 'T00:00:00');
+
+            botResponseText = `Perfect! I've added your availability for ${day.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}: ${formattedSlots}. Is there anything else you'd like to add?`;
+          }
         }
       } else {
-        botResponseText = result.error || "I had trouble understanding that time slot. Could you please try again with a specific time range? For example: 'I'm free from 9 AM to 5 PM' or '2-4 PM and 6-8 PM'";
+        botResponseText = result.error || "I had trouble understanding that. Could you please try again with a specific time range? For example: 'I'm free from 9 AM to 5 PM' or '2-4 PM and 6-8 PM'";
       }
 
       const botResponse: Message = {
