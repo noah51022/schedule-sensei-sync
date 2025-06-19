@@ -15,6 +15,7 @@ interface TimeSlot {
 }
 
 interface ClaudeResponse {
+  action?: 'add' | 'remove'; // 'add' is the default
   start_date?: string; // YYYY-MM-DD
   end_date?: string; // YYYY-MM-DD
   slots: TimeSlot[];
@@ -33,27 +34,33 @@ const corsHeaders = {
 };
 
 const getSystemPrompt = (contextDate: string) => `You are a helpful scheduling assistant. Your task is to:
-1. Parse natural language descriptions of availability into specific time slots and date ranges.
-2. The user is currently viewing the date: ${contextDate}. Use this for context if the user's message is ambiguous about dates (e.g., "tomorrow"). Today's actual date is not as relevant as the date they are viewing.
-3. Return a JSON object with:
+1. Parse natural language descriptions of availability, including requests to ADD or REMOVE time.
+2. Determine if the user wants to 'add' or 'remove' availability. Default to 'add' if unclear.
+3. The user is currently viewing the date: ${contextDate}. Use this for context if the user's message is ambiguous about dates (e.g., "tomorrow"). Today's actual date is not as relevant as the date they are viewing.
+4. Return a JSON object with:
+   - "action": "add" or "remove".
    - "start_date": The start date of availability in "YYYY-MM-DD" format.
    - "end_date": The end date of availability in "YYYY-MM-DD" format (optional, only if a range is specified).
    - "slots": An array of time slots, each with "start_hour" and "end_hour" in 24-hour format.
-4. If no specific time slots can be determined, return an object with an empty "slots" array, like { "slots": [] }.
-5. If no date is mentioned, use the context date as the "start_date".
-6. When a day of the week is mentioned (e.g., "next Monday"), calculate the date based on the context date.
+5. If no specific time slots can be determined, return an object with an empty "slots" array, like { "action": "add", "slots": [] }.
+6. If no date is mentioned, use the context date as the "start_date".
+7. When a day of the week is mentioned (e.g., "next Monday"), calculate the date based on the context date.
 
 Examples of user messages and your expected JSON output:
 - User message: "I'm free from 9 AM to 5 PM" (Context date: "2024-08-15")
-  Your output: { "start_date": "2024-08-15", "slots": [{ "start_hour": 9, "end_hour": 17 }] }
+  Your output: { "action": "add", "start_date": "2024-08-15", "slots": [{ "start_hour": 9, "end_hour": 17 }] }
 - User message: "Available 2-4 PM and 6-8 PM tomorrow" (Context date: "2024-08-15")
-  Your output: { "start_date": "2024-08-16", "slots": [{ "start_hour": 14, "end_hour": 16 }, { "start_hour": 18, "end_hour": 20 }] }
-- User message: "I'm available from 9-5 from august 5th to august 8th" (Context date: "2024-08-15")
-  Your output: { "start_date": "2024-08-05", "end_date": "2024-08-08", "slots": [{ "start_hour": 9, "end_hour": 17 }] }
+  Your output: { "action": "add", "start_date": "2024-08-16", "slots": [{ "start_hour": 14, "end_hour": 16 }, { "start_hour": 18, "end_hour": 20 }] }
+- User message: "I'm no longer available from 2pm to 3pm on Aug 19" (Context date: "2024-08-15")
+  Your output: { "action": "remove", "start_date": "2024-08-19", "slots": [{ "start_hour": 14, "end_hour": 15 }] }
+- User message: "remove my availability on august 20th from 9am to 12pm" (Context date: "2024-08-15")
+  Your output: { "action": "remove", "start_date": "2024-08-20", "slots": [{ "start_hour": 9, "end_hour": 12 }] }
+- User message: "Actually, I am not free next Monday" (Context date: "2024-08-12")
+  Your output: { "action": "remove", "start_date": "2024-08-19", "slots": [{ "start_hour": 0, "end_hour": 24 }] }
 - User message: "I can do next monday from 10am to 12pm" (Context date: "2024-08-12")
-  Your output: { "start_date": "2024-08-19", "slots": [{ "start_hour": 10, "end_hour": 12 }] }
+  Your output: { "action": "add", "start_date": "2024-08-19", "slots": [{ "start_hour": 10, "end_hour": 12 }] }
 - User message: "I'm busy"
-  Your output: { "slots": [] }
+  Your output: { "action": "add", "slots": [] }
 
 IMPORTANT: Your response must be ONLY a valid JSON object. Do not include any explanatory text, markdown formatting, or other content. Just the pure JSON object.
 `;
@@ -248,45 +255,47 @@ serve(async (req) => {
 
     const startDateStr = parsedResponse.start_date || contextDate;
     const startDate = new Date(`${startDateStr}T00:00:00Z`);
-    const endDate = parsedResponse.end_date
-      ? new Date(`${parsedResponse.end_date}T00:00:00Z`)
-      : startDate;
 
-    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-      return new Response(JSON.stringify({ error: 'Invalid date format from Claude' }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    // Use end_date if provided, otherwise use start_date
+    const endDateStr = parsedResponse.end_date || startDateStr;
+    const endDate = new Date(`${endDateStr}T00:00:00Z`);
 
-    const dailyAvailabilities: DailyAvailability[] = [];
-    let currentDate = new Date(startDate);
+    const resultWithAction = {
+      action: parsedResponse.action || 'add',
+      slots: validSlots,
+      start_date: startDate.toISOString().split('T')[0],
+      end_date: endDate.toISOString().split('T')[0]
+    };
 
+    const dates: DailyAvailability[] = [];
+    const currentDate = new Date(startDate);
     while (currentDate <= endDate) {
-      dailyAvailabilities.push({
+      dates.push({
         date: currentDate.toISOString().split('T')[0],
-        slots: validSlots,
+        slots: validSlots
       });
-      currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+      currentDate.setDate(currentDate.getDate() + 1);
     }
 
-    return new Response(JSON.stringify(dailyAvailabilities), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    const finalResponse = {
+      action: parsedResponse.action || 'add',
+      dates: dates
+    };
+
+    return new Response(JSON.stringify(finalResponse), {
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json',
+      },
     });
   } catch (error) {
-    console.error('Unexpected error:', error);
-    return new Response(
-      JSON.stringify({
-        error: 'Internal server error',
-        details: error.message || 'Unknown error'
-      }),
-      {
-        status: 500,
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json',
-        },
+    console.error('Unhandled error:', error);
+    return new Response(JSON.stringify({ error: `An unexpected error occurred: ${error.message}` }), {
+      status: 500,
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json',
       },
-    );
+    });
   }
 });

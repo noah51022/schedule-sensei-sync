@@ -17,6 +17,11 @@ interface DailyAvailability {
   slots: { start_hour: number; end_hour: number }[];
 }
 
+interface ClaudeFunctionResponse {
+  action: 'add' | 'remove';
+  dates: DailyAvailability[];
+}
+
 const Index = () => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
@@ -212,7 +217,7 @@ const Index = () => {
     }
 
     try {
-      const { data, error } = await supabase.functions.invoke<DailyAvailability[]>('chat-with-claude', {
+      const { data, error } = await supabase.functions.invoke<ClaudeFunctionResponse>('chat-with-claude', {
         body: {
           message,
           date: selectedDate.toISOString()
@@ -224,31 +229,64 @@ const Index = () => {
         return { success: false, error: `AI processing failed: ${error.message}` };
       }
 
-      if (data && Array.isArray(data)) {
-        for (const day of data) {
-          for (const slot of day.slots) {
-            const { error: insertError } = await supabase.from('availability').insert({
-              event_id: eventId,
-              user_id: user.id,
-              date: day.date,
-              start_hour: slot.start_hour,
-              end_hour: slot.end_hour
-            });
+      if (data && data.dates && Array.isArray(data.dates)) {
+        if (data.action === 'remove') {
+          // Handle removals
+          const firstDate = data.dates[0]?.date;
+          const lastDate = data.dates[data.dates.length - 1]?.date;
+          const slots = data.dates[0]?.slots;
 
-            if (insertError) {
-              console.error('Database insert error:', insertError);
-              return { success: false, error: "Failed to save availability to database" };
+          if (!firstDate || !lastDate || !slots || slots.length === 0) {
+            return { success: false, error: "No time slots were identified for removal" };
+          }
+
+          const { error: rpcError } = await supabase.rpc('delete_availability_slots', {
+            p_event_id: eventId,
+            p_user_id: user.id,
+            p_start_date: firstDate,
+            p_end_date: lastDate,
+            p_slots: slots
+          });
+
+          if (rpcError) {
+            console.error('Database remove error:', rpcError);
+            return { success: false, error: "Failed to remove availability from database" };
+          }
+
+          toast({
+            title: "Success",
+            description: "Your availability has been removed.",
+          });
+
+        } else {
+          // Handle additions (default action)
+          for (const day of data.dates) {
+            for (const slot of day.slots) {
+              const { error: insertError } = await supabase.from('availability').insert({
+                event_id: eventId,
+                user_id: user.id,
+                date: day.date,
+                start_hour: slot.start_hour,
+                end_hour: slot.end_hour
+              });
+
+              if (insertError) {
+                console.error('Database insert error:', insertError);
+                return { success: false, error: "Failed to save availability to database" };
+              }
             }
           }
+
+          toast({
+            title: "Success",
+            description: "Your availability has been updated",
+          });
         }
 
-        toast({
-          title: "Success",
-          description: "Your availability has been updated",
-        });
-
         setAvailabilityVersion(v => v + 1);
-        return { success: true, slots: data };
+        // The return type of handleAvailabilityUpdate expects slots, but the new AI response is different.
+        // For now, returning the slots from the first day for any UI feedback.
+        return { success: true, slots: data.dates };
       } else {
         return { success: false, error: "No time slots were identified" };
       }
