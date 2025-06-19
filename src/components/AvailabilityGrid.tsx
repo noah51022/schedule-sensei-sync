@@ -104,20 +104,83 @@ export const AvailabilityGrid = ({ selectedDate, eventId, availabilityVersion, o
       setTimeSlots(updatedSlots);
 
       if (isCurrentlyAvailable) {
-        // Remove availability using the same RPC that chat uses
-        // This handles overlapping intervals properly
-        const { error } = await supabase.rpc('delete_availability_slots', {
-          p_event_id: eventId,
-          p_user_id: user.id,
-          p_start_date: dateStr,
-          p_end_date: dateStr,
-          p_slots: [{ start_hour: hour, end_hour: hour + 1 }]
-        });
+        // First, get existing availability slots to handle overlapping scenarios
+        const { data: existingSlots } = await supabase
+          .from('availability')
+          .select('*')
+          .eq('event_id', eventId)
+          .eq('user_id', user.id)
+          .eq('date', dateStr);
 
-        if (error) {
-          // Revert optimistic update on error
-          setTimeSlots(timeSlots);
-          throw error;
+        // First try direct deletion for exact matches (hourly slots)
+        const { error: directError, count } = await supabase
+          .from('availability')
+          .delete({ count: 'exact' })
+          .eq('event_id', eventId)
+          .eq('user_id', user.id)
+          .eq('date', dateStr)
+          .eq('start_hour', hour)
+          .eq('end_hour', hour + 1);
+
+        // If direct deletion didn't work or found no matches, we need to handle slot splitting
+        if (directError || count === 0) {
+          if (!existingSlots) {
+            throw new Error('Could not fetch existing slots');
+          }
+
+          // Find slots that overlap with the hour we want to remove
+          const overlappingSlots = existingSlots.filter(slot =>
+            slot.start_hour < hour + 1 && slot.end_hour > hour
+          );
+
+          // Process each overlapping slot
+          for (const slot of overlappingSlots) {
+            // Delete the original slot
+            const { error: deleteError } = await supabase
+              .from('availability')
+              .delete()
+              .eq('id', slot.id);
+
+            if (deleteError) {
+              throw deleteError;
+            }
+
+            // Create the remaining parts
+            const newSlots = [];
+
+            // Part before the removed hour
+            if (slot.start_hour < hour) {
+              newSlots.push({
+                event_id: eventId,
+                user_id: user.id,
+                date: dateStr,
+                start_hour: slot.start_hour,
+                end_hour: hour
+              });
+            }
+
+            // Part after the removed hour
+            if (slot.end_hour > hour + 1) {
+              newSlots.push({
+                event_id: eventId,
+                user_id: user.id,
+                date: dateStr,
+                start_hour: hour + 1,
+                end_hour: slot.end_hour
+              });
+            }
+
+            // Insert the remaining parts
+            if (newSlots.length > 0) {
+              const { error: insertError } = await supabase
+                .from('availability')
+                .insert(newSlots);
+
+              if (insertError) {
+                throw insertError;
+              }
+            }
+          }
         }
       } else {
         // Add availability
