@@ -53,7 +53,7 @@ export const ChatInterface = ({ onAvailabilityUpdate, selectedDate }: ChatInterf
           weekday: 'long',
           month: 'short',
           day: 'numeric'
-        })} and I'll help you add it to your calendar. Try something like "I'm free from 9 AM to 5 PM" or "Available 2-4 PM and 6-8 PM".`,
+        })} and I'll help you add it to your calendar. Try something like "I'm free from 9 AM to 5 PM", "Available 2-4 PM and 6-8 PM", or "I'm free all day".`,
         sender: 'bot',
         timestamp: new Date(),
         role: 'assistant'
@@ -104,7 +104,8 @@ export const ChatInterface = ({ onAvailabilityUpdate, selectedDate }: ChatInterf
             const firstDay = new Date(dates[0].date + 'T00:00:00');
             const lastDay = new Date(dates[dates.length - 1].date + 'T00:00:00');
             const formattedSlots = dates[0].slots.map(slot => {
-              if (slot.start_hour === 0 && slot.end_hour === 24) return "all day";
+              if (slot.start_hour === 0 && slot.end_hour === 24) return "all day (24 hours)";
+              if (slot.start_hour === 8 && slot.end_hour === 20) return "all day (8 AM - 8 PM)";
               const startTime = new Date();
               startTime.setHours(slot.start_hour, 0, 0, 0);
               const endTime = new Date();
@@ -116,7 +117,8 @@ export const ChatInterface = ({ onAvailabilityUpdate, selectedDate }: ChatInterf
           } else {
             const day = new Date(dates[0].date + 'T00:00:00');
             const formattedSlots = dates[0].slots.map(slot => {
-              if (slot.start_hour === 0 && slot.end_hour === 24) return "all day";
+              if (slot.start_hour === 0 && slot.end_hour === 24) return "all day (24 hours)";
+              if (slot.start_hour === 8 && slot.end_hour === 20) return "all day (8 AM - 8 PM)";
               const startTime = new Date();
               startTime.setHours(slot.start_hour, 0, 0, 0);
               const endTime = new Date();
@@ -239,7 +241,7 @@ export const ChatInterface = ({ onAvailabilityUpdate, selectedDate }: ChatInterf
           </Button>
         </div>
         <p className="text-xs text-muted-foreground mt-2">
-          Try: "I'm available Monday 9 AM - 5 PM" or "Busy Tuesday afternoon"
+          Try: "I'm available Monday 9 AM - 5 PM", "I'm free all day", or "Busy Tuesday afternoon"
         </p>
       </div>
     </div>
