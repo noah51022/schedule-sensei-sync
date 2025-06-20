@@ -12,6 +12,7 @@ if (!anthropicApiKey) {
 interface TimeSlot {
   start_hour: number;
   end_hour: number;
+  name?: string; // Optional name/label for the time slot
 }
 
 interface DailyAvailability {
@@ -26,7 +27,7 @@ interface ClaudeFunctionResponse {
 
 // Function to correct common time format issues
 function correctTimeSlot(slot: any, originalMessage: string): TimeSlot | null {
-  let { start_hour, end_hour } = slot;
+  let { start_hour, end_hour, name } = slot;
 
   // Ensure we have numbers
   if (typeof start_hour !== 'number' || typeof end_hour !== 'number') {
@@ -36,8 +37,12 @@ function correctTimeSlot(slot: any, originalMessage: string): TimeSlot | null {
 
   // Handle special full-day cases
   if (start_hour === 0 && end_hour === 24) {
-    console.log('Accepted full 24-hour slot:', { start_hour, end_hour });
-    return { start_hour, end_hour };
+    console.log('Accepted full 24-hour slot:', { start_hour, end_hour, name });
+    const result: TimeSlot = { start_hour, end_hour };
+    if (name && typeof name === 'string' && name.trim()) {
+      result.name = name.trim();
+    }
+    return result;
   }
 
   // Basic validation - be more lenient
@@ -51,8 +56,12 @@ function correctTimeSlot(slot: any, originalMessage: string): TimeSlot | null {
     return null;
   }
 
-  console.log('Accepted time slot:', { start_hour, end_hour });
-  return { start_hour, end_hour };
+  console.log('Accepted time slot:', { start_hour, end_hour, name });
+  const result: TimeSlot = { start_hour, end_hour };
+  if (name && typeof name === 'string' && name.trim()) {
+    result.name = name.trim();
+  }
+  return result;
 }
 
 const corsHeaders = {
@@ -65,7 +74,8 @@ const corsHeaders = {
 const SYSTEM_PROMPT = `You are a helpful scheduling assistant. Your task is to:
 1. Parse natural language descriptions of availability into specific time slots for specific dates
 2. Handle both single-day and multi-day availability requests
-3. Return the results as a JSON object with date-specific time slots
+3. Extract optional names/labels for time slots when provided
+4. Return the results as a JSON object with date-specific time slots
 
 CRITICAL: Always use 24-hour format for times. Convert AM/PM times correctly:
 - 12 AM = 0, 1 AM = 1, ..., 11 AM = 11
@@ -75,9 +85,21 @@ SPECIAL CASES for "all day" expressions:
 - "all day", "entire day", "whole day", "free all day", "available all day" → [{ "start_hour": 8, "end_hour": 24 }]
 - "24/7", "24 hours", "round the clock" → [{ "start_hour": 0, "end_hour": 24 }]
 
+NAMING TIME SLOTS:
+When users provide context or purpose for their availability/unavailability, extract this as a "name" field:
+- "vacation in Aruba" → name: "vacation in Aruba"
+- "doctor appointment" → name: "doctor appointment"  
+- "client meeting" → name: "client meeting"
+- "away for summer camp" → name: "away for summer camp"
+- "working from home" → name: "working from home"
+- "family event" → name: "family event"
+
+If no specific purpose/context is mentioned, omit the name field entirely.
+
 For MULTI-DAY requests, analyze the date range and apply the time slots to each applicable date:
 - "I'm free all of August" → Apply default all-day hours (8-24) to all August days
 - "Available July 10th-15th from 9am-5pm" → Apply 9-17 to July 10,11,12,13,14,15
+- "Vacation in Hawaii July 1st-15th" → Apply all-day with name "vacation in Hawaii"
 - "Free Monday through Friday this week" → Apply to weekdays only
 - "Available next week" → Apply to all 7 days of next week
 
@@ -87,14 +109,15 @@ Your response must be a JSON object with this exact structure:
   "dates": [
     {
       "date": "YYYY-MM-DD",
-      "slots": [{ "start_hour": number, "end_hour": number }]
+      "slots": [{ "start_hour": number, "end_hour": number, "name"?: string }]
     }
   ]
 }
 
 Examples:
-- Single day: { "action": "add", "dates": [{ "date": "2024-01-15", "slots": [{ "start_hour": 9, "end_hour": 17 }] }] }
-- Multiple days: { "action": "add", "dates": [{ "date": "2024-01-15", "slots": [{ "start_hour": 8, "end_hour": 24 }] }, { "date": "2024-01-16", "slots": [{ "start_hour": 8, "end_hour": 24 }] }] }
+- Simple availability: { "action": "add", "dates": [{ "date": "2024-01-15", "slots": [{ "start_hour": 9, "end_hour": 17 }] }] }
+- Named availability: { "action": "add", "dates": [{ "date": "2024-01-15", "slots": [{ "start_hour": 14, "end_hour": 16, "name": "client meeting" }] }] }
+- Vacation period: { "action": "add", "dates": [{ "date": "2024-01-15", "slots": [{ "start_hour": 8, "end_hour": 24, "name": "vacation in Aruba" }] }] }
 - Remove availability: { "action": "remove", "dates": [{ "date": "2024-01-15", "slots": [{ "start_hour": 9, "end_hour": 17 }] }] }
 
 IMPORTANT: Your response must be ONLY valid JSON. No explanatory text or markdown formatting.`;

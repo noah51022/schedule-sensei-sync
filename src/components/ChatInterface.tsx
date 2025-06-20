@@ -17,7 +17,7 @@ interface Message {
 
 interface DailyAvailability {
   date: string;
-  slots: { start_hour: number; end_hour: number }[];
+  slots: { start_hour: number; end_hour: number; name?: string }[];
 }
 
 interface ChatInterfaceProps {
@@ -104,26 +104,48 @@ export const ChatInterface = ({ onAvailabilityUpdate, selectedDate }: ChatInterf
             const firstDay = new Date(dates[0].date + 'T00:00:00');
             const lastDay = new Date(dates[dates.length - 1].date + 'T00:00:00');
             const formattedSlots = dates[0].slots.map(slot => {
-              if (slot.start_hour === 0 && slot.end_hour === 24) return "all day (24 hours)";
-              if (slot.start_hour === 8 && slot.end_hour === 20) return "all day (8 AM - 8 PM)";
-              const startTime = new Date();
-              startTime.setHours(slot.start_hour, 0, 0, 0);
-              const endTime = new Date();
-              endTime.setHours(slot.end_hour, 0, 0, 0);
-              return `${startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })} - ${endTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`;
+              let timeRange;
+              if (slot.start_hour === 0 && slot.end_hour === 24) {
+                timeRange = "all day (24 hours)";
+              } else if (slot.start_hour === 8 && slot.end_hour === 20) {
+                timeRange = "all day (8 AM - 8 PM)";
+              } else {
+                const startTime = new Date();
+                startTime.setHours(slot.start_hour, 0, 0, 0);
+                const endTime = new Date();
+                endTime.setHours(slot.end_hour, 0, 0, 0);
+                timeRange = `${startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })} - ${endTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`;
+              }
+
+              // Add name if it exists
+              if (slot.name && slot.name.trim()) {
+                return `${timeRange} (${slot.name})`;
+              }
+              return timeRange;
             }).join(', ');
 
             botResponseText = `Perfect! I've ${verb} your availability from ${firstDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to ${lastDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} for ${formattedSlots}. Is there anything else?`;
           } else {
             const day = new Date(dates[0].date + 'T00:00:00');
             const formattedSlots = dates[0].slots.map(slot => {
-              if (slot.start_hour === 0 && slot.end_hour === 24) return "all day (24 hours)";
-              if (slot.start_hour === 8 && slot.end_hour === 20) return "all day (8 AM - 8 PM)";
-              const startTime = new Date();
-              startTime.setHours(slot.start_hour, 0, 0, 0);
-              const endTime = new Date();
-              endTime.setHours(slot.end_hour, 0, 0, 0);
-              return `${startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })} - ${endTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`;
+              let timeRange;
+              if (slot.start_hour === 0 && slot.end_hour === 24) {
+                timeRange = "all day (24 hours)";
+              } else if (slot.start_hour === 8 && slot.end_hour === 20) {
+                timeRange = "all day (8 AM - 8 PM)";
+              } else {
+                const startTime = new Date();
+                startTime.setHours(slot.start_hour, 0, 0, 0);
+                const endTime = new Date();
+                endTime.setHours(slot.end_hour, 0, 0, 0);
+                timeRange = `${startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })} - ${endTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`;
+              }
+
+              // Add name if it exists
+              if (slot.name && slot.name.trim()) {
+                return `${timeRange} (${slot.name})`;
+              }
+              return timeRange;
             }).join(', ');
 
             botResponseText = `Perfect! I've ${verb} your availability for ${day.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}: ${formattedSlots}. Is there anything else you'd like to change?`;

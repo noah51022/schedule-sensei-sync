@@ -38,7 +38,7 @@ const RecommendedTimes: React.FC<RecommendedTimesProps> = ({ eventId, participan
       try {
         const { data: availabilityData, error } = await supabase
           .from('availability')
-          .select('user_id, date, start_hour, end_hour')
+          .select('user_id, date, start_hour, end_hour, name')
           .eq('event_id', eventId);
 
         if (error) throw error;
