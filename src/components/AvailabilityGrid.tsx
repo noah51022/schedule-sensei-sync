@@ -13,7 +13,9 @@ interface TimeSlot {
   total: number;
   isUserAvailable: boolean;
   userSlotName?: string; // Name of the user's slot (if any)
+  userAvailabilityType?: 'available' | 'unavailable' | 'busy' | 'tentative'; // User's availability type
   slotNames?: string[]; // Names of all slots for this hour
+  slotDetails?: { name?: string; availability_type?: 'available' | 'unavailable' | 'busy' | 'tentative' }[]; // Detailed slot info for tooltips
 }
 
 interface AvailabilityGridProps {
@@ -35,10 +37,22 @@ export const AvailabilityGrid = ({ selectedDate, eventId, availabilityVersion, o
     return `${displayHour}:00 ${period}`;
   };
 
-  const getAvailabilityColor = (available: number, total: number, isUserAvailable: boolean) => {
+  const getAvailabilityColor = (available: number, total: number, isUserAvailable: boolean, userAvailabilityType?: 'available' | 'unavailable' | 'busy' | 'tentative') => {
     if (total === 0) return "bg-muted";
+
+    // If user has availability, show color based on their type
+    if (isUserAvailable) {
+      switch (userAvailabilityType) {
+        case 'available': return "bg-green-500";
+        case 'unavailable': return "bg-red-500";
+        case 'busy': return "bg-yellow-500";
+        case 'tentative': return "bg-gray-500";
+        default: return "bg-primary"; // fallback for existing data
+      }
+    }
+
+    // For other users' availability, use the existing logic
     const percentage = available / total;
-    if (isUserAvailable) return "bg-primary";
     if (percentage >= 0.8) return "bg-green-500";
     if (percentage >= 0.6) return "bg-green-400";
     if (percentage >= 0.4) return "bg-yellow-400";
@@ -53,7 +67,7 @@ export const AvailabilityGrid = ({ selectedDate, eventId, availabilityVersion, o
       // Fetch all availability for this date and event
       const { data: availabilities, error } = await supabase
         .from('availability')
-        .select('user_id, start_hour, end_hour, name')
+        .select('user_id, start_hour, end_hour, name, availability_type')
         .eq('event_id', eventId)
         .eq('date', dateStr);
 
@@ -78,10 +92,26 @@ export const AvailabilityGrid = ({ selectedDate, eventId, availabilityVersion, o
             if (availability.name) {
               slots[hour].userSlotName = availability.name;
             }
+            if (availability.availability_type) {
+              slots[hour].userAvailabilityType = availability.availability_type;
+            }
           }
           // Collect all slot names for this hour
           if (availability.name && !slots[hour].slotNames?.includes(availability.name)) {
             slots[hour].slotNames?.push(availability.name);
+          }
+          // Collect detailed slot info for tooltips
+          if (!slots[hour].slotDetails) {
+            slots[hour].slotDetails = [];
+          }
+          const existingDetail = slots[hour].slotDetails?.find(detail =>
+            detail.name === availability.name && detail.availability_type === availability.availability_type
+          );
+          if (!existingDetail) {
+            slots[hour].slotDetails?.push({
+              name: availability.name,
+              availability_type: availability.availability_type
+            });
           }
         }
       });
@@ -280,11 +310,22 @@ export const AvailabilityGrid = ({ selectedDate, eventId, availabilityVersion, o
                     <div
                       className={cn(
                         "w-4 h-4 rounded-full",
-                        getAvailabilityColor(slot.available, slot.total, slot.isUserAvailable)
+                        getAvailabilityColor(slot.available, slot.total, slot.isUserAvailable, slot.userAvailabilityType)
                       )}
                     />
                     {slot.userSlotName && (
-                      <div className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full max-w-[120px] truncate">
+                      <div className={cn(
+                        "px-2 py-1 text-xs rounded-full max-w-[120px] truncate",
+                        slot.userAvailabilityType === 'available' && "bg-green-100 text-green-800",
+                        slot.userAvailabilityType === 'unavailable' && "bg-red-100 text-red-800",
+                        slot.userAvailabilityType === 'busy' && "bg-yellow-100 text-yellow-800",
+                        slot.userAvailabilityType === 'tentative' && "bg-gray-100 text-gray-800",
+                        !slot.userAvailabilityType && "bg-blue-100 text-blue-800" // fallback
+                      )}>
+                        {slot.userAvailabilityType === 'available' && '✅ '}
+                        {slot.userAvailabilityType === 'unavailable' && '❌ '}
+                        {slot.userAvailabilityType === 'busy' && '🔒 '}
+                        {slot.userAvailabilityType === 'tentative' && '❓ '}
                         {slot.userSlotName}
                       </div>
                     )}
@@ -302,40 +343,69 @@ export const AvailabilityGrid = ({ selectedDate, eventId, availabilityVersion, o
                   </div>
                 </Button>
               </TooltipTrigger>
-              {(slot.slotNames && slot.slotNames.length > 0) && (
-                <TooltipContent>
-                  <div className="max-w-[200px]">
-                    <div className="font-medium mb-1">Named time slots:</div>
-                    {slot.slotNames.map((name, index) => (
-                      <div key={index} className="text-sm">• {name}</div>
-                    ))}
+              <TooltipContent>
+                <div className="max-w-[250px]">
+                  <div className="font-medium mb-1">{formatHour(slot.hour)} - Details:</div>
+                  <div className="text-sm space-y-1">
+                    <div>Total participants: {slot.total || 0}</div>
+                    <div>Available: {slot.available}</div>
+
+                    {slot.isUserAvailable && (
+                      <div className="pt-1 border-t border-border">
+                        <div className="font-medium text-xs">Your status:</div>
+                        <div className="flex items-center space-x-1 text-xs">
+                          {slot.userAvailabilityType === 'available' && <span>✅ Available</span>}
+                          {slot.userAvailabilityType === 'unavailable' && <span>❌ Unavailable</span>}
+                          {slot.userAvailabilityType === 'busy' && <span>🔒 Busy</span>}
+                          {slot.userAvailabilityType === 'tentative' && <span>❓ Tentative</span>}
+                          {!slot.userAvailabilityType && <span>✅ Available</span>}
+                          {slot.userSlotName && <span>- {slot.userSlotName}</span>}
+                        </div>
+                      </div>
+                    )}
+
+                    {(slot.slotDetails && slot.slotDetails.length > 0) && (
+                      <div className="pt-1 border-t border-border">
+                        <div className="font-medium text-xs mb-1">All time slots:</div>
+                        {slot.slotDetails.map((detail, index) => (
+                          <div key={index} className="flex items-center space-x-1 text-xs">
+                            {detail.availability_type === 'available' && <span>✅</span>}
+                            {detail.availability_type === 'unavailable' && <span>❌</span>}
+                            {detail.availability_type === 'busy' && <span>🔒</span>}
+                            {detail.availability_type === 'tentative' && <span>❓</span>}
+                            {!detail.availability_type && <span>✅</span>}
+                            <span>{detail.name || 'Unnamed slot'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </TooltipContent>
-              )}
+                </div>
+              </TooltipContent>
             </Tooltip>
           ))}
         </div>
       </TooltipProvider>
 
       <div className="mt-4 p-3 bg-muted rounded-lg">
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground">Availability</span>
-          <div className="flex items-center space-x-2">
-            <div className="flex items-center space-x-1">
-              <div className="w-3 h-3 rounded-full bg-red-400"></div>
-              <span>Low</span>
-            </div>
-            <div className="flex items-center space-x-1">
-              <div className="w-3 h-3 rounded-full bg-yellow-400"></div>
-              <span>Medium</span>
-            </div>
+        <div className="text-xs">
+          <span className="text-muted-foreground font-medium mb-2 block">Your Status Types:</span>
+          <div className="grid grid-cols-2 gap-2">
             <div className="flex items-center space-x-1">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              <span>High</span>
+              <span>✅ Available</span>
             </div>
             <div className="flex items-center space-x-1">
-              <div className="w-3 h-3 rounded-full bg-primary"></div>
-              <span>Your Slots</span>
+              <div className="w-3 h-3 rounded-full bg-red-500"></div>
+              <span>❌ Unavailable</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+              <span>🔒 Busy</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <div className="w-3 h-3 rounded-full bg-gray-500"></div>
+              <span>❓ Tentative</span>
             </div>
           </div>
         </div>

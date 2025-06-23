@@ -14,7 +14,7 @@ import { Participant } from "@/components/ParticipantsPopover";
 
 interface DailyAvailability {
   date: string; // YYYY-MM-DD
-  slots: { start_hour: number; end_hour: number; name?: string }[];
+  slots: { start_hour: number; end_hour: number; name?: string; availability_type?: 'available' | 'unavailable' | 'busy' | 'tentative' }[];
 }
 
 interface ClaudeFunctionResponse {
@@ -278,6 +278,9 @@ const Index = () => {
               if (slot.name && slot.name.trim()) {
                 insertData.name = slot.name.trim();
               }
+
+              // Include availability_type, defaulting to 'available' if not specified
+              insertData.availability_type = slot.availability_type || 'available';
 
               const { error: insertError } = await supabase
                 .from('availability')
