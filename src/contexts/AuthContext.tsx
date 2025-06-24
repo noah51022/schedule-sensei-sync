@@ -47,8 +47,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const signUp = async (email: string, password: string, displayName: string) => {
-    const redirectUrl = `${window.location.origin}/`;
-    
+    // Use production URL for email confirmation redirects
+    // Auto-detect if we're in production vs development
+    const currentUrl = window.location.origin;
+    const isLocalhost = currentUrl.includes('localhost') || currentUrl.includes('127.0.0.1');
+
+    // If localhost, use a production URL instead to avoid email confirmation issues
+    // Update this URL to match your actual deployed domain
+    const redirectUrl = isLocalhost
+      ? "https://schedule-sensei-sync.vercel.app/"
+      : `${currentUrl}/`;
+
     const { error } = await supabase.auth.signUp({
       email,
       password,
