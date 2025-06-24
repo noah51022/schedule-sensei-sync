@@ -133,20 +133,50 @@ export const ChatInterface = ({ onAvailabilityUpdate, selectedDate }: ChatInterf
           botResponseText = "I couldn't identify any specific dates or times in your message. Please try again, for example: 'I'm free on Monday from 10am to 2pm'.";
         } else {
           const { action, dates } = result;
-          const verb = action === 'remove' ? 'removed' : 'added';
-          const preposition = action === 'remove' ? 'from' : 'to';
 
           if (dates.length > 1) {
             const firstDay = new Date(dates[0].date + 'T00:00:00');
             const lastDay = new Date(dates[dates.length - 1].date + 'T00:00:00');
             const formattedSlots = dates[0].slots.map(formatSlotWithType).join(', ');
 
-            botResponseText = `Perfect! I've ${verb} your availability from ${firstDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to ${lastDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} for ${formattedSlots}. Is there anything else?`;
+            // Determine the primary availability type for the response
+            const primaryType = dates[0].slots[0]?.availability_type || 'available';
+
+            if (action === 'remove') {
+              botResponseText = `Perfect! I've removed your time slots from ${firstDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to ${lastDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} for ${formattedSlots}. Is there anything else?`;
+            } else {
+              // Use different messaging based on availability type
+              if (primaryType === 'unavailable') {
+                botResponseText = `Perfect! I've marked you as unavailable from ${firstDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to ${lastDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} for ${formattedSlots}. Is there anything else?`;
+              } else if (primaryType === 'busy') {
+                botResponseText = `Perfect! I've marked you as busy from ${firstDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to ${lastDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} for ${formattedSlots}. Is there anything else?`;
+              } else if (primaryType === 'tentative') {
+                botResponseText = `Perfect! I've marked you as tentatively available from ${firstDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to ${lastDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} for ${formattedSlots}. Is there anything else?`;
+              } else {
+                botResponseText = `Perfect! I've added your availability from ${firstDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to ${lastDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} for ${formattedSlots}. Is there anything else?`;
+              }
+            }
           } else {
             const day = new Date(dates[0].date + 'T00:00:00');
             const formattedSlots = dates[0].slots.map(formatSlotWithType).join(', ');
 
-            botResponseText = `Perfect! I've ${verb} your availability for ${day.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}: ${formattedSlots}. Is there anything else you'd like to change?`;
+            // Determine the primary availability type for the response
+            const primaryType = dates[0].slots[0]?.availability_type || 'available';
+
+            if (action === 'remove') {
+              botResponseText = `Perfect! I've removed your time slots for ${day.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}: ${formattedSlots}. Is there anything else you'd like to change?`;
+            } else {
+              // Use different messaging based on availability type
+              if (primaryType === 'unavailable') {
+                botResponseText = `Perfect! I've marked you as unavailable for ${day.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}: ${formattedSlots}. Is there anything else you'd like to change?`;
+              } else if (primaryType === 'busy') {
+                botResponseText = `Perfect! I've marked you as busy for ${day.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}: ${formattedSlots}. Is there anything else you'd like to change?`;
+              } else if (primaryType === 'tentative') {
+                botResponseText = `Perfect! I've marked you as tentatively available for ${day.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}: ${formattedSlots}. Is there anything else you'd like to change?`;
+              } else {
+                botResponseText = `Perfect! I've added your availability for ${day.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}: ${formattedSlots}. Is there anything else you'd like to change?`;
+              }
+            }
           }
         }
       } else {

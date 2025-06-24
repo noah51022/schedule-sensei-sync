@@ -5,7 +5,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { Database } from "@/integrations/supabase/types";
 import { Button } from "./ui/button";
 import { toast } from "./ui/use-toast";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+
+interface ParticipantDetail {
+  user_id: string;
+  display_name?: string;
+  name?: string;
+  availability_type?: 'available' | 'unavailable' | 'busy' | 'tentative';
+}
 
 interface TimeSlot {
   hour: number;
@@ -16,6 +23,7 @@ interface TimeSlot {
   userAvailabilityType?: 'available' | 'unavailable' | 'busy' | 'tentative'; // User's availability type
   slotNames?: string[]; // Names of all slots for this hour
   slotDetails?: { name?: string; availability_type?: 'available' | 'unavailable' | 'busy' | 'tentative' }[]; // Detailed slot info for tooltips
+  participantDetails?: ParticipantDetail[]; // Participant information with names
 }
 
 interface AvailabilityGridProps {
@@ -64,10 +72,19 @@ export const AvailabilityGrid = ({ selectedDate, eventId, availabilityVersion, o
     try {
       const dateStr = selectedDate.toISOString().split('T')[0];
 
-      // Fetch all availability for this date and event
+      // Fetch all availability for this date and event, including participant info
       const { data: availabilities, error } = await supabase
         .from('availability')
-        .select('user_id, start_hour, end_hour, name, availability_type')
+        .select(`
+          user_id, 
+          start_hour, 
+          end_hour, 
+          name, 
+          availability_type,
+          profiles:user_id (
+            display_name
+          )
+        `)
         .eq('event_id', eventId)
         .eq('date', dateStr);
 
@@ -79,14 +96,18 @@ export const AvailabilityGrid = ({ selectedDate, eventId, availabilityVersion, o
         available: 0,
         total: 0,
         isUserAvailable: false,
-        slotNames: []
+        slotNames: [],
+        participantDetails: []
       }));
 
       // Process availabilities
       availabilities?.forEach(availability => {
         for (let hour = availability.start_hour; hour < availability.end_hour; hour++) {
           slots[hour].total++;
-          slots[hour].available++;
+          // Only count as available if the availability type is 'available' or 'tentative' (or null for backward compatibility)
+          if (availability.availability_type === 'available' || availability.availability_type === 'tentative' || !availability.availability_type) {
+            slots[hour].available++;
+          }
           if (availability.user_id === user?.id) {
             slots[hour].isUserAvailable = true;
             if (availability.name) {
@@ -109,6 +130,20 @@ export const AvailabilityGrid = ({ selectedDate, eventId, availabilityVersion, o
           );
           if (!existingDetail) {
             slots[hour].slotDetails?.push({
+              name: availability.name,
+              availability_type: availability.availability_type
+            });
+          }
+
+          // Collect participant details for this hour
+          if (!slots[hour].participantDetails) {
+            slots[hour].participantDetails = [];
+          }
+          const existingParticipant = slots[hour].participantDetails?.find(p => p.user_id === availability.user_id);
+          if (!existingParticipant) {
+            slots[hour].participantDetails?.push({
+              user_id: availability.user_id,
+              display_name: (availability.profiles as any)?.display_name || 'Anonymous User',
               name: availability.name,
               availability_type: availability.availability_type
             });
@@ -285,107 +320,132 @@ export const AvailabilityGrid = ({ selectedDate, eventId, availabilityVersion, o
         <p className="text-sm text-muted-foreground">Click on a time slot to toggle your availability</p>
       </div>
 
-      <TooltipProvider>
-        <div className="grid grid-cols-1 gap-2 max-h-96 overflow-y-auto">
-          {timeSlots.slice(8).map((slot) => (
-            <Tooltip key={slot.hour}>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={cn(
-                    "flex items-center justify-between p-3 h-auto",
-                    "hover:border-primary hover:shadow-sm",
-                    hoveredSlot === slot.hour && "border-primary shadow-sm",
-                    isLoading && "opacity-50 cursor-not-allowed"
-                  )}
-                  disabled={isLoading}
-                  onClick={() => toggleAvailability(slot.hour)}
-                  onMouseEnter={() => setHoveredSlot(slot.hour)}
-                  onMouseLeave={() => setHoveredSlot(null)}
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="text-sm font-medium text-foreground min-w-[80px]">
-                      {formatHour(slot.hour)}
+      <div className="grid grid-cols-1 gap-2 max-h-96 overflow-y-auto">
+        {timeSlots.slice(8).map((slot) => (
+          <Popover key={slot.hour}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className={cn(
+                  "flex items-center justify-between p-3 h-auto",
+                  "hover:border-primary hover:shadow-sm",
+                  hoveredSlot === slot.hour && "border-primary shadow-sm",
+                  isLoading && "opacity-50 cursor-not-allowed"
+                )}
+                disabled={isLoading}
+                onClick={() => toggleAvailability(slot.hour)}
+                onMouseEnter={() => setHoveredSlot(slot.hour)}
+                onMouseLeave={() => setHoveredSlot(null)}
+              >
+                <div className="flex items-center space-x-3">
+                  <div className="text-sm font-medium text-foreground min-w-[80px]">
+                    {formatHour(slot.hour)}
+                  </div>
+                  <div
+                    className={cn(
+                      "w-4 h-4 rounded-full",
+                      getAvailabilityColor(slot.available, slot.total, slot.isUserAvailable, slot.userAvailabilityType)
+                    )}
+                  />
+                  {slot.userSlotName && (
+                    <div className={cn(
+                      "px-2 py-1 text-xs rounded-full max-w-[120px] truncate",
+                      slot.userAvailabilityType === 'available' && "bg-green-100 text-green-800",
+                      slot.userAvailabilityType === 'unavailable' && "bg-red-100 text-red-800",
+                      slot.userAvailabilityType === 'busy' && "bg-yellow-100 text-yellow-800",
+                      slot.userAvailabilityType === 'tentative' && "bg-gray-100 text-gray-800",
+                      !slot.userAvailabilityType && "bg-blue-100 text-blue-800" // fallback
+                    )}>
+                      {slot.userAvailabilityType === 'available' && '✅ '}
+                      {slot.userAvailabilityType === 'unavailable' && '❌ '}
+                      {slot.userAvailabilityType === 'busy' && '🔒 '}
+                      {slot.userAvailabilityType === 'tentative' && '❓ '}
+                      {slot.userSlotName}
                     </div>
-                    <div
-                      className={cn(
-                        "w-4 h-4 rounded-full",
-                        getAvailabilityColor(slot.available, slot.total, slot.isUserAvailable, slot.userAvailabilityType)
-                      )}
-                    />
-                    {slot.userSlotName && (
-                      <div className={cn(
-                        "px-2 py-1 text-xs rounded-full max-w-[120px] truncate",
-                        slot.userAvailabilityType === 'available' && "bg-green-100 text-green-800",
-                        slot.userAvailabilityType === 'unavailable' && "bg-red-100 text-red-800",
-                        slot.userAvailabilityType === 'busy' && "bg-yellow-100 text-yellow-800",
-                        slot.userAvailabilityType === 'tentative' && "bg-gray-100 text-gray-800",
-                        !slot.userAvailabilityType && "bg-blue-100 text-blue-800" // fallback
-                      )}>
-                        {slot.userAvailabilityType === 'available' && '✅ '}
-                        {slot.userAvailabilityType === 'unavailable' && '❌ '}
-                        {slot.userAvailabilityType === 'busy' && '🔒 '}
-                        {slot.userAvailabilityType === 'tentative' && '❓ '}
-                        {slot.userSlotName}
-                      </div>
-                    )}
+                  )}
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm text-muted-foreground">
+                    {slot.available}/{slot.total || 1} available
+                  </span>
+                  {slot.available === slot.total && slot.total > 0 && (
+                    <div className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
+                      Perfect Match!
+                    </div>
+                  )}
+                </div>
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80" align="start">
+              <div className="space-y-3">
+                <div className="font-medium text-sm">{formatHour(slot.hour)} - Details</div>
+
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span>Total participants:</span>
+                    <span className="font-medium">{slot.total || 0}</span>
                   </div>
-
-                  <div className="flex items-center space-x-2">
-                    <span className="text-sm text-muted-foreground">
-                      {slot.available}/{slot.total || 1} available
-                    </span>
-                    {slot.available === slot.total && slot.total > 0 && (
-                      <div className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
-                        Perfect Match!
-                      </div>
-                    )}
-                  </div>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <div className="max-w-[250px]">
-                  <div className="font-medium mb-1">{formatHour(slot.hour)} - Details:</div>
-                  <div className="text-sm space-y-1">
-                    <div>Total participants: {slot.total || 0}</div>
-                    <div>Available: {slot.available}</div>
-
-                    {slot.isUserAvailable && (
-                      <div className="pt-1 border-t border-border">
-                        <div className="font-medium text-xs">Your status:</div>
-                        <div className="flex items-center space-x-1 text-xs">
-                          {slot.userAvailabilityType === 'available' && <span>✅ Available</span>}
-                          {slot.userAvailabilityType === 'unavailable' && <span>❌ Unavailable</span>}
-                          {slot.userAvailabilityType === 'busy' && <span>🔒 Busy</span>}
-                          {slot.userAvailabilityType === 'tentative' && <span>❓ Tentative</span>}
-                          {!slot.userAvailabilityType && <span>✅ Available</span>}
-                          {slot.userSlotName && <span>- {slot.userSlotName}</span>}
-                        </div>
-                      </div>
-                    )}
-
-                    {(slot.slotDetails && slot.slotDetails.length > 0) && (
-                      <div className="pt-1 border-t border-border">
-                        <div className="font-medium text-xs mb-1">All time slots:</div>
-                        {slot.slotDetails.map((detail, index) => (
-                          <div key={index} className="flex items-center space-x-1 text-xs">
-                            {detail.availability_type === 'available' && <span>✅</span>}
-                            {detail.availability_type === 'unavailable' && <span>❌</span>}
-                            {detail.availability_type === 'busy' && <span>🔒</span>}
-                            {detail.availability_type === 'tentative' && <span>❓</span>}
-                            {!detail.availability_type && <span>✅</span>}
-                            <span>{detail.name || 'Unnamed slot'}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                  <div className="flex justify-between">
+                    <span>Available:</span>
+                    <span className="font-medium text-green-600">{slot.available}</span>
                   </div>
                 </div>
-              </TooltipContent>
-            </Tooltip>
-          ))}
-        </div>
-      </TooltipProvider>
+
+                {slot.isUserAvailable && (
+                  <div className="pt-2 border-t border-border">
+                    <div className="font-medium text-xs mb-1">Your status:</div>
+                    <div className="flex items-center space-x-2 text-xs">
+                      {slot.userAvailabilityType === 'available' && <span className="text-green-600">✅ Available</span>}
+                      {slot.userAvailabilityType === 'unavailable' && <span className="text-red-600">❌ Unavailable</span>}
+                      {slot.userAvailabilityType === 'busy' && <span className="text-yellow-600">🔒 Busy</span>}
+                      {slot.userAvailabilityType === 'tentative' && <span className="text-gray-600">❓ Tentative</span>}
+                      {!slot.userAvailabilityType && <span className="text-green-600">✅ Available</span>}
+                      {slot.userSlotName && <span className="text-muted-foreground">- {slot.userSlotName}</span>}
+                    </div>
+                  </div>
+                )}
+
+                {slot.participantDetails && slot.participantDetails.length > 0 && (
+                  <div className="pt-2 border-t border-border">
+                    <div className="font-medium text-xs mb-2">Participants ({slot.participantDetails.length}):</div>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {slot.participantDetails.map((participant, index) => (
+                        <div key={`${participant.user_id}-${index}`} className="flex items-center justify-between text-xs p-1 rounded bg-muted/50">
+                          <div className="flex items-center space-x-2">
+                            <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium">
+                              {participant.display_name?.charAt(0).toUpperCase() || 'U'}
+                            </div>
+                            <span className="font-medium">{participant.display_name}</span>
+                          </div>
+                          <div className="flex items-center space-x-1">
+                            {participant.availability_type === 'available' && <span className="text-green-600">✅</span>}
+                            {participant.availability_type === 'unavailable' && <span className="text-red-600">❌</span>}
+                            {participant.availability_type === 'busy' && <span className="text-yellow-600">🔒</span>}
+                            {participant.availability_type === 'tentative' && <span className="text-gray-600">❓</span>}
+                            {!participant.availability_type && <span className="text-green-600">✅</span>}
+                            {participant.name && (
+                              <span className="text-muted-foreground text-xs max-w-20 truncate">
+                                {participant.name}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-2 border-t border-border">
+                  <p className="text-xs text-muted-foreground">
+                    Click on the time slot to toggle your availability
+                  </p>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+        ))}
+      </div>
 
       <div className="mt-4 p-3 bg-muted rounded-lg">
         <div className="text-xs">
