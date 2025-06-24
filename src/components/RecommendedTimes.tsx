@@ -38,7 +38,7 @@ const RecommendedTimes: React.FC<RecommendedTimesProps> = ({ eventId, participan
       try {
         const { data: availabilityData, error } = await supabase
           .from('availability')
-          .select('user_id, date, start_hour, end_hour')
+          .select('user_id, date, start_hour, end_hour, name, availability_type')
           .eq('event_id', eventId);
 
         if (error) throw error;
@@ -51,6 +51,7 @@ const RecommendedTimes: React.FC<RecommendedTimesProps> = ({ eventId, participan
         }
 
         const availabilityByDate: { [key: string]: { [hour: number]: Set<string> } } = {};
+        const unavailableByDate: { [key: string]: { [hour: number]: Set<string> } } = {};
 
         for (const entry of availabilityData) {
           if (!entry.date || !entry.user_id) continue;
@@ -58,12 +59,26 @@ const RecommendedTimes: React.FC<RecommendedTimesProps> = ({ eventId, participan
           if (!availabilityByDate[entry.date]) {
             availabilityByDate[entry.date] = {};
           }
+          if (!unavailableByDate[entry.date]) {
+            unavailableByDate[entry.date] = {};
+          }
 
           for (let hour = entry.start_hour; hour < entry.end_hour; hour++) {
-            if (!availabilityByDate[entry.date][hour]) {
-              availabilityByDate[entry.date][hour] = new Set();
+            // Track available participants (available or tentative only)
+            if (entry.availability_type === 'available' || entry.availability_type === 'tentative' || !entry.availability_type) {
+              if (!availabilityByDate[entry.date][hour]) {
+                availabilityByDate[entry.date][hour] = new Set();
+              }
+              availabilityByDate[entry.date][hour].add(entry.user_id);
             }
-            availabilityByDate[entry.date][hour].add(entry.user_id);
+
+            // Track unavailable participants (unavailable or busy)
+            if (entry.availability_type === 'unavailable' || entry.availability_type === 'busy') {
+              if (!unavailableByDate[entry.date][hour]) {
+                unavailableByDate[entry.date][hour] = new Set();
+              }
+              unavailableByDate[entry.date][hour].add(entry.user_id);
+            }
           }
         }
 
@@ -73,9 +88,16 @@ const RecommendedTimes: React.FC<RecommendedTimesProps> = ({ eventId, participan
         for (const date of sortedDates) {
           let startHour: number | null = null;
           for (let hour = 8; hour <= 23; hour++) {
-            const participantsForSlot = availabilityByDate[date][hour] || new Set();
+            const availableParticipants = availabilityByDate[date][hour] || new Set();
+            const unavailableParticipants = unavailableByDate[date][hour] || new Set();
 
-            if (participantsForSlot.size === totalParticipants) {
+            // A time slot is good if:
+            // 1. All participants are available (or tentative)
+            // 2. No participants are unavailable or busy at this time
+            const allAvailable = availableParticipants.size === totalParticipants;
+            const noneUnavailable = unavailableParticipants.size === 0;
+
+            if (allAvailable && noneUnavailable) {
               if (startHour === null) {
                 startHour = hour;
               }
@@ -165,24 +187,37 @@ const RecommendedTimes: React.FC<RecommendedTimesProps> = ({ eventId, participan
   return (
     <div className="bg-card border border-border rounded-lg p-4">
       <h3 className="font-semibold text-foreground mb-4">Recommended Times</h3>
+      <p className="text-xs text-muted-foreground mb-3">
+        Times when all participants are available and none are busy or unavailable
+      </p>
       <div className="space-y-2">
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Calculating best times...</p>
         ) : groupedSlots.length > 0 ? (
           groupedSlots.map((slot, index) => (
-            <div key={index} className="bg-muted p-2 rounded-md text-sm">
-              <p className="font-medium">
-                {formatDateRange(slot.startDate, slot.endDate)}
-              </p>
-              <p className="text-muted-foreground">
-                {formatTime(slot.startHour)} - {formatTime(slot.endHour)}
-              </p>
+            <div key={index} className="bg-green-50 border border-green-200 p-3 rounded-md text-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium text-green-800">
+                    {formatDateRange(slot.startDate, slot.endDate)}
+                  </p>
+                  <p className="text-green-600">
+                    {formatTime(slot.startHour)} - {formatTime(slot.endHour)}
+                  </p>
+                </div>
+                <div className="text-green-600">
+                  ✅
+                </div>
+              </div>
             </div>
           ))
         ) : (
-          <p className="text-sm text-muted-foreground">
-            No common availability found for all participants.
-          </p>
+          <div className="bg-orange-50 border border-orange-200 p-3 rounded-md text-sm">
+            <p className="text-orange-800 font-medium">No optimal times found</p>
+            <p className="text-orange-600 text-xs mt-1">
+              All participants need to be available with no conflicting busy/unavailable times.
+            </p>
+          </div>
         )}
       </div>
     </div>

@@ -14,7 +14,7 @@ import { Participant } from "@/components/ParticipantsPopover";
 
 interface DailyAvailability {
   date: string; // YYYY-MM-DD
-  slots: { start_hour: number; end_hour: number }[];
+  slots: { start_hour: number; end_hour: number; name?: string; availability_type?: 'available' | 'unavailable' | 'busy' | 'tentative' }[];
 }
 
 interface ClaudeFunctionResponse {
@@ -266,13 +266,25 @@ const Index = () => {
           // Handle additions (default action)
           for (const day of data.dates) {
             for (const slot of day.slots) {
-              const { error: insertError } = await supabase.from('availability').insert({
+              const insertData: any = {
                 event_id: eventId,
                 user_id: user.id,
                 date: day.date,
                 start_hour: slot.start_hour,
                 end_hour: slot.end_hour
-              });
+              };
+
+              // Only include name if it exists and is not empty
+              if (slot.name && slot.name.trim()) {
+                insertData.name = slot.name.trim();
+              }
+
+              // Include availability_type, defaulting to 'available' if not specified
+              insertData.availability_type = slot.availability_type || 'available';
+
+              const { error: insertError } = await supabase
+                .from('availability')
+                .insert(insertData);
 
               if (insertError) {
                 console.error('Database insert error:', insertError);

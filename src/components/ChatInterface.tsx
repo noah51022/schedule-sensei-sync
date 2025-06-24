@@ -17,7 +17,7 @@ interface Message {
 
 interface DailyAvailability {
   date: string;
-  slots: { start_hour: number; end_hour: number }[];
+  slots: { start_hour: number; end_hour: number; name?: string; availability_type?: 'available' | 'unavailable' | 'busy' | 'tentative' }[];
 }
 
 interface ChatInterfaceProps {
@@ -35,7 +35,7 @@ export const ChatInterface = ({ onAvailabilityUpdate, selectedDate }: ChatInterf
         weekday: 'long',
         month: 'short',
         day: 'numeric'
-      })} and I'll help you add it to your calendar. Try something like "I'm free from 9 AM to 5 PM" or "Available 2-4 PM and 6-8 PM".`,
+      })} and I'll help you add it to your calendar. Try something like "I'm free from 9 AM to 5 PM", "I'm not available Tuesday afternoon", "Busy with client meeting 2-4 PM", or "I might be available for calls Thursday".`,
       sender: 'bot',
       timestamp: new Date(),
       role: 'assistant'
@@ -43,6 +43,42 @@ export const ChatInterface = ({ onAvailabilityUpdate, selectedDate }: ChatInterf
   ]);
   const [inputText, setInputText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  const formatSlotWithType = (slot: { start_hour: number; end_hour: number; name?: string; availability_type?: 'available' | 'unavailable' | 'busy' | 'tentative' }) => {
+    let timeRange;
+    if (slot.start_hour === 0 && slot.end_hour === 24) {
+      timeRange = "all day (24 hours)";
+    } else if (slot.start_hour === 8 && slot.end_hour === 20) {
+      timeRange = "all day (8 AM - 8 PM)";
+    } else {
+      const startTime = new Date();
+      startTime.setHours(slot.start_hour, 0, 0, 0);
+      const endTime = new Date();
+      endTime.setHours(slot.end_hour, 0, 0, 0);
+      timeRange = `${startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })} - ${endTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`;
+    }
+
+    // Add availability type icon and name
+    let statusIcon = '';
+    let statusText = '';
+    if (slot.availability_type) {
+      switch (slot.availability_type) {
+        case 'available': statusIcon = '✅'; statusText = 'Available'; break;
+        case 'unavailable': statusIcon = '❌'; statusText = 'Unavailable'; break;
+        case 'busy': statusIcon = '🔒'; statusText = 'Busy'; break;
+        case 'tentative': statusIcon = '❓'; statusText = 'Tentative'; break;
+      }
+    }
+
+    let result = timeRange;
+    if (slot.name && slot.name.trim()) {
+      result += ` (${slot.name})`;
+    }
+    if (statusIcon && slot.availability_type !== 'available') {
+      result += ` ${statusIcon} ${statusText}`;
+    }
+    return result;
+  };
 
   // Update welcome message when selected date changes
   useEffect(() => {
@@ -53,7 +89,7 @@ export const ChatInterface = ({ onAvailabilityUpdate, selectedDate }: ChatInterf
           weekday: 'long',
           month: 'short',
           day: 'numeric'
-        })} and I'll help you add it to your calendar. Try something like "I'm free from 9 AM to 5 PM", "Available 2-4 PM and 6-8 PM", or "I'm free all day".`,
+        })} and I'll help you add it to your calendar. Try something like "I'm free from 9 AM to 5 PM", "I'm not available Tuesday afternoon", "Busy with client meeting 2-4 PM", or "I might be available for calls Thursday".`,
         sender: 'bot',
         timestamp: new Date(),
         role: 'assistant'
@@ -97,36 +133,50 @@ export const ChatInterface = ({ onAvailabilityUpdate, selectedDate }: ChatInterf
           botResponseText = "I couldn't identify any specific dates or times in your message. Please try again, for example: 'I'm free on Monday from 10am to 2pm'.";
         } else {
           const { action, dates } = result;
-          const verb = action === 'remove' ? 'removed' : 'added';
-          const preposition = action === 'remove' ? 'from' : 'to';
 
           if (dates.length > 1) {
             const firstDay = new Date(dates[0].date + 'T00:00:00');
             const lastDay = new Date(dates[dates.length - 1].date + 'T00:00:00');
-            const formattedSlots = dates[0].slots.map(slot => {
-              if (slot.start_hour === 0 && slot.end_hour === 24) return "all day (24 hours)";
-              if (slot.start_hour === 8 && slot.end_hour === 20) return "all day (8 AM - 8 PM)";
-              const startTime = new Date();
-              startTime.setHours(slot.start_hour, 0, 0, 0);
-              const endTime = new Date();
-              endTime.setHours(slot.end_hour, 0, 0, 0);
-              return `${startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })} - ${endTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`;
-            }).join(', ');
+            const formattedSlots = dates[0].slots.map(formatSlotWithType).join(', ');
 
-            botResponseText = `Perfect! I've ${verb} your availability from ${firstDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to ${lastDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} for ${formattedSlots}. Is there anything else?`;
+            // Determine the primary availability type for the response
+            const primaryType = dates[0].slots[0]?.availability_type || 'available';
+
+            if (action === 'remove') {
+              botResponseText = `Perfect! I've removed your time slots from ${firstDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to ${lastDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} for ${formattedSlots}. Is there anything else?`;
+            } else {
+              // Use different messaging based on availability type
+              if (primaryType === 'unavailable') {
+                botResponseText = `Perfect! I've marked you as unavailable from ${firstDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to ${lastDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} for ${formattedSlots}. Is there anything else?`;
+              } else if (primaryType === 'busy') {
+                botResponseText = `Perfect! I've marked you as busy from ${firstDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to ${lastDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} for ${formattedSlots}. Is there anything else?`;
+              } else if (primaryType === 'tentative') {
+                botResponseText = `Perfect! I've marked you as tentatively available from ${firstDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to ${lastDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} for ${formattedSlots}. Is there anything else?`;
+              } else {
+                botResponseText = `Perfect! I've added your availability from ${firstDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} to ${lastDay.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} for ${formattedSlots}. Is there anything else?`;
+              }
+            }
           } else {
             const day = new Date(dates[0].date + 'T00:00:00');
-            const formattedSlots = dates[0].slots.map(slot => {
-              if (slot.start_hour === 0 && slot.end_hour === 24) return "all day (24 hours)";
-              if (slot.start_hour === 8 && slot.end_hour === 20) return "all day (8 AM - 8 PM)";
-              const startTime = new Date();
-              startTime.setHours(slot.start_hour, 0, 0, 0);
-              const endTime = new Date();
-              endTime.setHours(slot.end_hour, 0, 0, 0);
-              return `${startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })} - ${endTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`;
-            }).join(', ');
+            const formattedSlots = dates[0].slots.map(formatSlotWithType).join(', ');
 
-            botResponseText = `Perfect! I've ${verb} your availability for ${day.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}: ${formattedSlots}. Is there anything else you'd like to change?`;
+            // Determine the primary availability type for the response
+            const primaryType = dates[0].slots[0]?.availability_type || 'available';
+
+            if (action === 'remove') {
+              botResponseText = `Perfect! I've removed your time slots for ${day.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}: ${formattedSlots}. Is there anything else you'd like to change?`;
+            } else {
+              // Use different messaging based on availability type
+              if (primaryType === 'unavailable') {
+                botResponseText = `Perfect! I've marked you as unavailable for ${day.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}: ${formattedSlots}. Is there anything else you'd like to change?`;
+              } else if (primaryType === 'busy') {
+                botResponseText = `Perfect! I've marked you as busy for ${day.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}: ${formattedSlots}. Is there anything else you'd like to change?`;
+              } else if (primaryType === 'tentative') {
+                botResponseText = `Perfect! I've marked you as tentatively available for ${day.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}: ${formattedSlots}. Is there anything else you'd like to change?`;
+              } else {
+                botResponseText = `Perfect! I've added your availability for ${day.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}: ${formattedSlots}. Is there anything else you'd like to change?`;
+              }
+            }
           }
         }
       } else {
@@ -241,7 +291,7 @@ export const ChatInterface = ({ onAvailabilityUpdate, selectedDate }: ChatInterf
           </Button>
         </div>
         <p className="text-xs text-muted-foreground mt-2">
-          Try: "I'm available Monday 9 AM - 5 PM", "I'm free all day", or "Busy Tuesday afternoon"
+          Try: "I'm available Monday 9 AM - 5 PM", "I'm not available Tuesday", "Busy with meetings 2-4 PM", or "I might be free Thursday"
         </p>
       </div>
     </div>
